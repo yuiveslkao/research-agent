@@ -69,9 +69,11 @@ def env_hash(code_dir: Path, cwd: str, project: str, julia_version: str) -> str:
 
 
 def _seal(path: Path) -> None:
-    for p in sorted(path.rglob("*"), reverse=True):
-        os.chmod(p, stat.S_IMODE(p.stat().st_mode) & ~0o222)
-    os.chmod(path, stat.S_IMODE(path.stat().st_mode) & ~0o222)
+    """Make record files read-only. Directories stay writable so that git and rm can still
+    remove or move a run directory (a read-only directory blocks unlinking its files)."""
+    for p in path.rglob("*"):
+        if p.is_file():
+            os.chmod(p, stat.S_IMODE(p.stat().st_mode) & ~0o222)
 
 
 def submit_run(spec_path: str | Path, paths: Paths, executor: Executor) -> str:

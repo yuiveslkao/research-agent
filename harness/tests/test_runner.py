@@ -25,6 +25,7 @@ def test_completed_run_is_recorded_and_sealed(repo, paths, tmp_path):
     assert r["harness"]["env_hash"].startswith("sha256:")
     run_dir = paths.ledger / "runs" / rid
     assert (run_dir / "result.json").stat().st_mode & 0o222 == 0  # sealed (root ignores W_OK)
+    assert run_dir.stat().st_mode & 0o200  # directory stays deletable
 
 
 def test_executes_committed_tree_not_dirty_tree(repo, paths, tmp_path):

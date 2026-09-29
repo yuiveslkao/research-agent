@@ -47,9 +47,12 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
    then `hermes setup` (provider and API key).
 3. `research-install-profiles --root .` creates the `researcher` and `critic` profiles, writes their `SOUL.md`
    and merges the MCP server into each `config.yaml` (backup `config.yaml.bak`).
-4. Set a model in each profile (`hermes -p researcher setup`). Run `hermes tools` in each profile and disable every
-   built-in toolset except the MCP tools (the installer only disables terminal, execute_code, memory, web).
-5. Smoke test: `hermes -p researcher -z "Call list_runs and read_notes and print what they return."`
+4. Set a model in each profile (`hermes -p researcher setup`). The installer sets `agent.disabled_toolsets` and
+   `platform_toolsets.cli: []` (no built-in toolsets). If you use `hermes tools` afterwards, re-run the installer
+   or check with the doctor: it fails a profile that enables terminal, file, code_execution, browser, delegation, etc.
+5. **`research-doctor --root . --ask`** checks both profiles (config, SOUL.md, starts the MCP server exactly as
+   configured and lists its tools, Docker, Julia image, committed Manifest, log tails) and asks each profile which
+   tools it can call. Send its output when something fails. Smoke test by hand: `hermes -p researcher -z "Call list_runs and read_notes and print what they return."`
 6. Campaign: `research-loop --question-file agent/questions/de_rate.md --rounds 3 --max-runs 20`
    (env `RESEARCH_HERMES_CMD` overrides the Hermes command; JSON list with `{profile}` and `{prompt}`).
 7. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `audit.jsonl`). Keep one with `git add -f`.

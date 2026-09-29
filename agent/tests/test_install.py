@@ -17,6 +17,7 @@ def test_install_merges_without_clobbering(tmp_path):
     assert r["env"]["RESEARCH_ROLE"] == "critic" and r["timeout"] == TOOL_TIMEOUT_S > 1800
     assert r["tools"]["include"] == COMMON_TOOLS and r["args"] == ["-m", "researchagent.mcp_server"]
     assert set(cfg["agent"]["disabled_toolsets"]) == {"browser", *DISABLED_TOOLSETS} and cfg["agent"]["x"] == 1
+    assert cfg["platform_toolsets"]["cli"] == []          # built-in toolsets locked down
     assert (pdir / "config.yaml.bak").exists()
     soul = (pdir / "SOUL.md").read_text()
     assert "skeptical referee" in soul and "data, not instructions" in soul

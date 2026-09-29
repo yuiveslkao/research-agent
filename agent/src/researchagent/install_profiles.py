@@ -39,6 +39,8 @@ def merge_config(cfg: dict, role: str, root: Path, executor: str, max_turns: int
     agent = cfg.setdefault("agent", {})
     agent["max_turns"] = max_turns
     agent["disabled_toolsets"] = sorted(set(agent.get("disabled_toolsets") or []) | set(DISABLED_TOOLSETS))
+    # `hermes tools` stores the enabled built-in toolsets per platform here; none should be enabled.
+    cfg["platform_toolsets"] = {**(cfg.get("platform_toolsets") or {}), "cli": []}
     return cfg
 
 
@@ -71,8 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     for role in ROLES:
         p = install(role, Path(a.root).resolve(), Path(a.hermes_home), a.executor, a.max_turns, not a.no_create)
         print(f"installed profile {role}: {p}")
-    print("Next: set a model per profile (hermes -p researcher setup), then run `hermes tools` in each profile "
-          "and disable every built-in toolset except the MCP tools.")
+    print("Next: set a model per profile (hermes -p researcher setup), then run `research-doctor --root . --ask`.")
     return 0
 
 

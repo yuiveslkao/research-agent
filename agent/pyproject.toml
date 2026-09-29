@@ -12,6 +12,7 @@ dev = ["pytest"]
 research-mcp = "researchagent.mcp_server:main"
 research-loop = "researchagent.loop:main"
 research-install-profiles = "researchagent.install_profiles:main"
+research-doctor = "researchagent.doctor:main"
 
 [build-system]
 requires = ["setuptools>=68"]

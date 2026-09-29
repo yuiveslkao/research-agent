@@ -24,6 +24,7 @@
 | 2b. Statement grid | `rh submit specs/check_highprec_C0001.toml` | `check.outcome = "pass"` (statement holds on the grid at 512 bits) |
 | 3. Rerun | `rh rerun <run-id>` | check record `outcome = "pass"` under the spec's determinism policy |
 | 4. Falsification | `rh submit specs/check_falsify_C0001.toml` | `outcome = "survived"` (with effort recorded) or `"violated"` with the counterexample θ |
+| 5. Planted flaw | `rh submit specs/check_falsify_C0002.toml` and `..._C0003.toml` | C0002 `survived`, C0003 `violated` (same statement, one constant doubled) |
 
 `C0001` is an **illustrative placeholder**, not a theorem: its bound shape was picked so the
 pipeline has something to falsify. In an mpmath prototype, a nearby constant (`c = 2πd`) is violated

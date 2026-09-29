@@ -1,0 +1,27 @@
+[project]
+name = "researchagent"
+version = "0.0.1"
+description = "Research MCP server, Hermes profiles and campaign loop on top of rharness"
+requires-python = ">=3.11"
+dependencies = ["rharness", "mcp>=1.9,<2", "pyyaml>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+research-mcp = "researchagent.mcp_server:main"
+research-loop = "researchagent.loop:main"
+research-install-profiles = "researchagent.install_profiles:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+researchagent = ["profiles/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

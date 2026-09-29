@@ -8,6 +8,7 @@ configurations, conformal maps). Design notes and the Phase 0 plan: [docs/phase0
 | `harness/` | Python run harness (`rh` CLI): sealed spec/result records, executors, `rerun`/`compare` |
 | `workspace/` | Julia research code: `library/`, `scripts/`, `statements/`, `envs/main/` |
 | `checkers/` | Human-owned Julia checkers (`highprec`, `falsify`); agents must not write here |
+| `agent/` | Research MCP server, Hermes profiles (Researcher, Critic), campaign loop ([docs/agent.md](docs/agent.md)) |
 | `specs/` | Example RunSpecs for the Phase 0 DE/Sinc benchmark |
 | `ledger/` | `runs/` (sealed records) and `checks/`; committed |
 | `store/`, `work/` | Content-addressed outputs and scratch; git-ignored |

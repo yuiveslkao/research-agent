@@ -100,6 +100,16 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
 
     names = _env_names(pdir / ".env")
     f.append(Finding("info", f".env variable names: {sorted(names) or 'none'}"))
+    if str(model.get("provider")).lower() == "anthropic":
+        for var in PROVIDER_KEYS["anthropic"]:
+            shape = _env_shape(pdir / ".env", var)
+            if shape is None:
+                continue
+            n, ok = shape
+            f.append(Finding("ok" if ok else "fail",
+                             f"{var}: {n} characters, {'has' if ok else 'does NOT have'} the sk-ant- prefix and a plausible length"
+                             + ("" if ok else f" -> HTTP 401 expected. Re-enter it: `hermes -p {role} setup` "
+                                              "(never type a menu number into a key prompt)")))
     wanted = PROVIDER_KEYS.get(str(model.get("provider")).lower())
     if wanted and not (set(wanted) & (names | set(os.environ))):
         f.append(Finding("fail", f"provider {model.get('provider')!r} needs one of {wanted} in "
@@ -235,6 +245,20 @@ def _env_names(path: Path) -> set[str]:
         return set()
     return {ln.split("=", 1)[0].replace("export ", "").strip() for ln in path.read_text().splitlines()
             if "=" in ln and not ln.lstrip().startswith("#")}
+
+
+def _env_shape(path: Path, name: str) -> tuple[int, bool] | None:
+    """(length, looks like an Anthropic key) of a variable's value; never returns the value itself."""
+    if not path.exists():
+        return None
+    for ln in path.read_text().splitlines():
+        if ln.lstrip().startswith("#") or "=" not in ln:
+            continue
+        k, v = ln.split("=", 1)
+        if k.replace("export ", "").strip() == name:
+            v = v.strip().strip("'\"")
+            return len(v), v.startswith("sk-ant-") and len(v) >= 40
+    return None
 
 
 def _redacted_config(path: Path) -> list[str]:

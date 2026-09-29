@@ -163,6 +163,8 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
             f.append(Finding("fail", f"a basic Hermes turn for {role} fails, so --ask/--probe were skipped:\n{e}\n"
                                      f"Run it by hand to see the full output: "
                                      f"hermes -p {role} -z 'Reply OK'; echo exit=$?"))
+            f.append(Finding("info", f"logs/agent.log (last {tail}; -z hides Hermes errors from stderr):\n"
+                                     f"{_tail(pdir / 'logs' / 'agent.log', tail)}"))
             return f
     if ask:
         try:

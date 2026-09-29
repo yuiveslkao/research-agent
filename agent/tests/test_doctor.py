@@ -142,6 +142,7 @@ def test_basic_turn_failure_short_circuits_ask_and_probe(root, tmp_path):
     fails = [f for f in fs if f.level == "fail"]
     assert len(fails) == 1 and "basic Hermes turn" in fails[0].msg and "no API key" in fails[0].msg
     assert DeadAgent.calls == 1
+    assert any("logs/agent.log" in f.msg for f in fs)
 
 
 def test_missing_provider_credentials_are_flagged(root, tmp_path, monkeypatch):

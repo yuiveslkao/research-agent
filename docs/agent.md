@@ -32,6 +32,7 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
 ## Trust boundary
 
 - Profiles disable every built-in Hermes toolset (`agent.disabled_toolsets` lists them all, `platform_toolsets.cli: []`); the only actions are the MCP tools (named `mcp__research__<tool>` in Hermes). `research-doctor --ask` checks the tool list the model actually sees and fails if a built-in such as `terminal` or `read_file` is exposed. Do not run a campaign until it is clean.
+- `hermes -z` (one-shot) runs with approvals bypassed (`HERMES_YOLO_MODE=1`), so the toolset lock-down is the only barrier to host access, not a per-command approval. Exit code 2 means the turn failed or stopped partway; Hermes hides the reason in `-z` mode, look in `~/.hermes/profiles/<role>/logs/agent.log`.
 - Agents can write only `workspace/agent/experiments/*.jl` and `workspace/agent/statements/*.jl`, and only in the
   lab worktree (never on your branch). Checkers, the library, specs, grades and run records are not writable.
 - Runs execute in Docker (no network, CPU/RAM/walltime capped server-side: 4 threads, 6 GB, 1800 s, 64..4096 bits).

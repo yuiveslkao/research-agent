@@ -2,7 +2,8 @@ import sys
 
 import yaml
 
-from researchagent.doctor import RISKY, check_environment, check_profile, classify_tools, parse_tool_list, render
+from researchagent.doctor import (RISKY, check_environment, check_profile, classify_tools, compare_profiles,
+                                  parse_tool_list, render)
 from researchagent.install_profiles import install
 
 
@@ -73,3 +74,40 @@ def test_tool_list_classification():
     fs = classify_tools(parse_tool_list(clean))
     assert [f.level for f in fs] == ["ok", "warn"]
     assert classify_tools([])[1].level == "fail"
+
+
+class LeakyAgent:
+    """researcher can create files (built-in tools live), critic cannot."""
+    def ask(self, profile, prompt):
+        if "Create an empty file" in prompt:
+            if profile == "researcher":
+                import re
+                from pathlib import Path
+                Path(re.search(r"(/\S*rh_probe_\S+)", prompt).group(1)).touch()
+                return "done"
+            return "NO_TOOL"
+        return "mcp__research__read_notes\ntool_search" if profile == "critic" else "terminal\nmcp__research__read_notes"
+
+
+def test_probe_detects_live_builtin_access(root, tmp_path):
+    home, _ = setup_profile(tmp_path, root, "researcher")
+    fs = check_profile("researcher", home, root, probe=True, ask=True, agent=LeakyAgent())
+    assert any(f.level == "fail" and f.msg.startswith("PROBE") for f in fs)
+    assert any(f.level == "fail" and "terminal" in f.msg for f in fs)
+    home2, _ = setup_profile(tmp_path, root, "critic")
+    fs = check_profile("critic", home2, root, probe=True, agent=LeakyAgent())
+    assert any(f.level == "ok" and "could not create a file" in f.msg for f in fs)
+
+
+def test_compare_profiles_redacts_env_and_shows_differences(root, tmp_path):
+    home, cfgp = setup_profile(tmp_path, root, "researcher")
+    setup_profile(tmp_path, root, "critic")
+    cfg = yaml.safe_load(cfgp.read_text())
+    cfg["tools_extra"] = ["think"]
+    cfgp.write_text(yaml.safe_dump(cfg))
+    (home / "profiles" / "researcher" / ".no-bundled-skills").write_text("")
+    (home / "profiles" / "researcher" / ".env").write_text("SECRET_KEY=abc\n")
+    fs = compare_profiles(home)
+    text = "\n".join(f.msg for f in fs)
+    assert "tools_extra" in text and ".no-bundled-skills" in text and "SECRET_KEY" in text
+    assert "abc" not in text and "RESEARCH_ROLE" in text

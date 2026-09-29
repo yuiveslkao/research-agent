@@ -52,7 +52,7 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
    or check with the doctor: it fails a profile that enables terminal, file, code_execution, browser, delegation, etc.
 5. **`research-doctor --root . --ask`** checks both profiles (config, SOUL.md, starts the MCP server exactly as
    configured and lists its tools, Docker, Julia image, committed Manifest, log tails) and asks each profile which
-   tools it can call. Send its output when something fails. Smoke test by hand: `hermes -p researcher -z "Call list_runs and read_notes and print what they return."`
+   tools it can call. Send its output when something fails. The model's own tool list is only self-report (a small model may misreport), so `--probe` gives ground truth: it asks each profile to create a temp file with any built-in tool and checks whether the file exists. `--compare` shows how the two profiles differ (env values redacted). Smoke test by hand: `hermes -p researcher -z "Call list_runs and read_notes and print what they return."`
 6. Campaign: `research-loop --question-file agent/questions/de_rate.md --rounds 3 --max-runs 20`
    (env `RESEARCH_HERMES_CMD` overrides the Hermes command; JSON list with `{profile}` and `{prompt}`).
 7. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `audit.jsonl`). Keep one with `git add -f`.

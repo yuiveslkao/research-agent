@@ -7,8 +7,10 @@ except RESEARCH_*; log tails may contain other text, so read them before sharing
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ import anyio
 import yaml
 
 from .install_profiles import COMMON_TOOLS, ROLES
+from .loop import HermesCLI
 
 # Built-in Hermes toolsets that would let a profile act outside the research tools.
 RISKY = {"terminal", "file", "code_execution", "execute_code", "browser", "computer_use", "delegation",
@@ -83,7 +86,7 @@ def check_environment(root: Path, julia_version: str = "1.11.3") -> list[Finding
 
 
 def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, tail: int = 15,
-                  hermes_cmd: str = "hermes") -> list[Finding]:
+                  probe: bool = False, agent=None) -> list[Finding]:
     f: list[Finding] = []
     pdir = hermes_home / "profiles" / role
     if not pdir.exists():
@@ -145,14 +148,30 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
     f.append(Finding("info", f"logs/mcp-stderr.log (last {tail}):\n{_tail(pdir / 'logs' / 'mcp-stderr.log', tail)}"))
     f.append(Finding("info", f"logs/errors.log (last {tail}):\n{_tail(pdir / 'logs' / 'errors.log', tail)}"))
 
+    if ask or probe:
+        agent = agent or HermesCLI(timeout=240)
     if ask:
-        r = _sh([hermes_cmd, "-p", role, "-z",
-                 "List the exact names of every tool you can call, one per line, and nothing else. "
-                 "Do not call any tool."], timeout=240)
-        f.append(Finding("info" if r.returncode == 0 else "fail",
-                         f"hermes -p {role} -z (exit {r.returncode}):\n{(r.stdout or r.stderr).strip()[-2000:]}"))
-        if r.returncode == 0:
-            f += classify_tools(parse_tool_list(r.stdout))
+        try:
+            out = agent.ask(role, "List the exact names of every tool you can call, one per line, and nothing else. "
+                                  "Do not call any tool.")
+            f.append(Finding("info", f"tool list reported by {role}:\n{out[-2000:]}"))
+            f += classify_tools(parse_tool_list(out))
+        except Exception as e:  # noqa: BLE001
+            f.append(Finding("fail", f"hermes turn for {role} failed: {e}"))
+    if probe:
+        target = Path(tempfile.gettempdir()) / f"rh_probe_{role}_{secrets.token_hex(4)}"
+        try:
+            reply = agent.ask(role, f"Create an empty file at exactly this path using whatever tool can do it "
+                                    f"(a shell command such as touch, or a file-writing tool): {target}\n"
+                                    "If you have no such tool, reply exactly NO_TOOL and do nothing else.")
+            if target.exists():
+                target.unlink()
+                f.append(Finding("fail", f"PROBE: {role} created a file outside the MCP tools: built-in "
+                                         "file/shell access is live"))
+            else:
+                f.append(Finding("ok", f"probe: {role} could not create a file (reply: {reply[-120:]!r})"))
+        except Exception as e:  # noqa: BLE001
+            f.append(Finding("fail", f"probe turn for {role} failed: {e}"))
     return f
 
 
@@ -185,6 +204,29 @@ def classify_tools(names: list[str]) -> list[Finding]:
     return f
 
 
+def _redacted_config(path: Path) -> list[str]:
+    cfg = yaml.safe_load(path.read_text()) if path.exists() else {}
+    for entry in ((cfg or {}).get("mcp_servers") or {}).values():
+        if isinstance(entry.get("env"), dict):
+            entry["env"] = {k: (v if k.startswith("RESEARCH_") else "<redacted>") for k, v in entry["env"].items()}
+    return yaml.safe_dump(cfg or {}, sort_keys=True).splitlines()
+
+
+def compare_profiles(hermes_home: Path, a: str = "researcher", b: str = "critic") -> list[Finding]:
+    """What differs between two profiles: config (env values redacted), .env variable NAMES, top-level files."""
+    pa, pb = hermes_home / "profiles" / a, hermes_home / "profiles" / b
+    diff = list(difflib.unified_diff(_redacted_config(pa / "config.yaml"), _redacted_config(pb / "config.yaml"),
+                                     a, b, lineterm="", n=0))
+    def names(p: Path) -> set[str]:
+        return {ln.split("=", 1)[0].strip() for ln in p.read_text().splitlines()
+                if "=" in ln and not ln.lstrip().startswith("#")} if p.exists() else set()
+    envd = sorted(names(pa / ".env") ^ names(pb / ".env"))
+    files = sorted({x.name for x in pa.iterdir()} ^ {x.name for x in pb.iterdir()}) if pa.exists() and pb.exists() else []
+    return [Finding("info", "config.yaml diff:\n" + ("\n".join(diff) or "(identical apart from redactions)")),
+            Finding("info", f".env variable names that differ: {envd or 'none'}"),
+            Finding("info", f"top-level entries present in only one profile: {files or 'none'}")]
+
+
 def render(title: str, findings: list[Finding]) -> str:
     tag = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL", "info": "    "}
     return f"== {title} ==\n" + "\n".join(f"[{tag[x.level]}] {x.msg}" for x in findings) + "\n"
@@ -196,11 +238,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
     ap.add_argument("--julia-version", default="1.11.3")
     ap.add_argument("--ask", action="store_true", help="also ask each profile to list its tools (one small LLM call each)")
+    ap.add_argument("--probe", action="store_true",
+                    help="ground-truth test: ask each profile to create a temp file with any built-in tool")
+    ap.add_argument("--compare", action="store_true", help="show how the researcher and critic profiles differ")
     ap.add_argument("--tail", type=int, default=15)
     a = ap.parse_args(argv)
     root, home = Path(a.root).resolve(), Path(a.hermes_home)
     sections = [("environment", check_environment(root, a.julia_version))]
-    sections += [(f"profile {r}", check_profile(r, home, root, a.ask, a.tail)) for r in ROLES]
+    sections += [(f"profile {r}", check_profile(r, home, root, a.ask, a.tail, a.probe)) for r in ROLES]
+    if a.compare:
+        sections.append(("profile diff (researcher vs critic)", compare_profiles(home)))
     for title, fs in sections:
         print(render(title, fs))
     failed = sum(1 for _, fs in sections for x in fs if x.level == "fail")

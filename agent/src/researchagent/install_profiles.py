@@ -20,8 +20,16 @@ import yaml
 ROLES = ("researcher", "critic")
 COMMON_TOOLS = ["submit_experiment", "submit_check", "inspect_run", "read_artifact", "list_runs",
                 "rerun_run", "compare_runs", "add_note", "read_notes"]
-# Built-in toolsets that would bypass the sandbox or add untrusted input. Extend after `hermes tools`.
-DISABLED_TOOLSETS = ["terminal", "execute_code", "memory", "web"]
+# Every built-in / plugin toolset name we know of. `agent.disabled_toolsets` is applied by Hermes as a strict
+# subtraction after toolset resolution, so listing all of them leaves only the MCP tools. The `file` toolset
+# is the one that provides read_file/write_file/patch/search_files (and terminal).
+DISABLED_TOOLSETS = [
+    "a2a", "bot_room", "browser", "clarify", "code_execution", "computer_use", "connections",
+    "context_engine", "cronjob", "delegation", "desktop_ui", "discord", "discord_admin", "execute_code",
+    "feishu_doc", "feishu_drive", "file", "homeassistant", "image_gen", "kanban", "memory", "project",
+    "search", "session_search", "setup", "skills", "spotify", "stt", "terminal", "todo", "tts", "video",
+    "video_gen", "vision", "web", "x_search", "yuanbao",
+]
 TOOL_TIMEOUT_S = 1900          # must exceed MAX_WALLTIME_S (1800) since submit_* block
 
 
@@ -38,7 +46,9 @@ def merge_config(cfg: dict, role: str, root: Path, executor: str, max_turns: int
     cfg.setdefault("mcp_servers", {})["research"] = mcp_entry(role, root, executor)
     agent = cfg.setdefault("agent", {})
     agent["max_turns"] = max_turns
-    agent["disabled_toolsets"] = sorted(set(agent.get("disabled_toolsets") or []) | set(DISABLED_TOOLSETS))
+    known = {t for k in ("known_builtin_toolsets", "known_plugin_toolsets")
+             for v in (cfg.get(k) or {}).values() for t in (v or [])}
+    agent["disabled_toolsets"] = sorted(set(agent.get("disabled_toolsets") or []) | set(DISABLED_TOOLSETS) | known)
     # `hermes tools` stores the enabled built-in toolsets per platform here; none should be enabled.
     cfg["platform_toolsets"] = {**(cfg.get("platform_toolsets") or {}), "cli": []}
     return cfg

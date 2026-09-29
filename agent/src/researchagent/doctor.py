@@ -151,6 +151,37 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
                  "Do not call any tool."], timeout=240)
         f.append(Finding("info" if r.returncode == 0 else "fail",
                          f"hermes -p {role} -z (exit {r.returncode}):\n{(r.stdout or r.stderr).strip()[-2000:]}"))
+        if r.returncode == 0:
+            f += classify_tools(parse_tool_list(r.stdout))
+    return f
+
+
+META_TOOLS = {"tool_search", "tool_describe", "tool_call"}   # Hermes deferred-tool helpers
+
+
+def parse_tool_list(text: str) -> list[str]:
+    names = []
+    for line in text.splitlines():
+        t = line.strip().strip("-*`• ").strip()
+        if t and " " not in t and len(t) < 80:
+            names.append(t)
+    return names
+
+
+def classify_tools(names: list[str]) -> list[Finding]:
+    """Anything that is not a research MCP tool or a Hermes meta tool is a built-in that should be off."""
+    ours = [n for n in names if n.startswith("mcp__research__") or n.startswith("mcp_research_")]
+    meta = [n for n in names if n in META_TOOLS]
+    other = [n for n in names if n not in ours and n not in meta]
+    f = []
+    if other:
+        f.append(Finding("fail", f"built-in tools exposed to the model: {other}  -> profile is NOT locked down"))
+    else:
+        f.append(Finding("ok", "model reports only research MCP tools and Hermes meta tools"))
+    if not ours:
+        f.append(Finding("fail", "model reports no research MCP tools"))
+    if meta:
+        f.append(Finding("warn", f"Hermes meta tools present {meta}: not verified that they cannot reach disabled tools"))
     return f
 
 

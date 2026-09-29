@@ -31,7 +31,7 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
 
 ## Trust boundary
 
-- Profiles disable the terminal, code-execution, memory and web toolsets; the only actions are the MCP tools.
+- Profiles disable every built-in Hermes toolset (`agent.disabled_toolsets` lists them all, `platform_toolsets.cli: []`); the only actions are the MCP tools (named `mcp__research__<tool>` in Hermes). `research-doctor --ask` checks the tool list the model actually sees and fails if a built-in such as `terminal` or `read_file` is exposed. Do not run a campaign until it is clean.
 - Agents can write only `workspace/agent/experiments/*.jl` and `workspace/agent/statements/*.jl`, and only in the
   lab worktree (never on your branch). Checkers, the library, specs, grades and run records are not writable.
 - Runs execute in Docker (no network, CPU/RAM/walltime capped server-side: 4 threads, 6 GB, 1800 s, 64..4096 bits).
@@ -48,7 +48,7 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
 3. `research-install-profiles --root .` creates the `researcher` and `critic` profiles, writes their `SOUL.md`
    and merges the MCP server into each `config.yaml` (backup `config.yaml.bak`).
 4. Set a model in each profile (`hermes -p researcher setup`). The installer sets `agent.disabled_toolsets` and
-   `platform_toolsets.cli: []` (no built-in toolsets). If you use `hermes tools` afterwards, re-run the installer
+   `platform_toolsets.cli: []`, with every known built-in toolset (including `file`, which provides read_file/write_file/patch/search_files) disabled. If you use `hermes tools` afterwards, re-run the installer
    or check with the doctor: it fails a profile that enables terminal, file, code_execution, browser, delegation, etc.
 5. **`research-doctor --root . --ask`** checks both profiles (config, SOUL.md, starts the MCP server exactly as
    configured and lists its tools, Docker, Julia image, committed Manifest, log tails) and asks each profile which

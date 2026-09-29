@@ -2,7 +2,7 @@ import sys
 
 import yaml
 
-from researchagent.doctor import RISKY, check_environment, check_profile, render
+from researchagent.doctor import RISKY, check_environment, check_profile, classify_tools, parse_tool_list, render
 from researchagent.install_profiles import install
 
 
@@ -62,3 +62,14 @@ def test_missing_profile_and_wrong_role(root, tmp_path):
 def test_environment_check_runs(root):
     fs = check_environment(root)
     assert fs[0].level == "ok" and "Manifest.toml" in fs[1].msg
+
+
+def test_tool_list_classification():
+    reported = "read_file\nwrite_file\nterminal\ntool_search\nmcp__research__add_note\n"
+    fs = classify_tools(parse_tool_list(reported))
+    assert any(f.level == "fail" and "read_file" in f.msg and "terminal" in f.msg for f in fs)
+    assert any(f.level == "warn" and "tool_search" in f.msg for f in fs)
+    clean = "- tool_search\n- `tool_call`\n- mcp__research__list_runs\n- mcp__research__read_notes\n"
+    fs = classify_tools(parse_tool_list(clean))
+    assert [f.level for f in fs] == ["ok", "warn"]
+    assert classify_tools([])[1].level == "fail"

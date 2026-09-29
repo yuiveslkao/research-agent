@@ -48,7 +48,7 @@ by a factor of about 500 on `d ≤ 1` and about 1e10 near `d = 3/2`, while `c = 
    git add workspace/envs/main && git commit -m "Pin Julia environment"
    ```
    The harness refuses to run without a committed `Manifest.toml`. Host Julia is optional (`juliaup`, not snap).
-5. Run from the repo root: `rh submit specs/known_answer.toml`, then `rh show <run-id>`.
+5. Run from the repo root: `rh submit specs/known_answer.toml`, then `rh show <run-id>` and `rh logs <run-id>` (stdout/stderr).
 
 The harness executes the **committed** tree (`git archive`), never the working tree. Commit before submitting.
 

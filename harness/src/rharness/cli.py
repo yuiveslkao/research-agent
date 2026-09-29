@@ -1,4 +1,4 @@
-"""rh submit SPEC | rerun RUN_ID | compare A B --rel-tol X | show RUN_ID  (run from the repo root)."""
+"""rh submit SPEC | logs RUN_ID | rerun RUN_ID | compare A B --rel-tol X | show RUN_ID  (run from the repo root)."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +9,7 @@ from pathlib import Path
 from .executor import DockerExecutor, LocalProcessExecutor
 from .rerun import compare, rerun
 from .runner import Paths, load_result, submit_run
+from .store import get_path
 from .spec import SpecError
 
 
@@ -21,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("submit").add_argument("spec")
     sub.add_parser("rerun").add_argument("run_id")
     sub.add_parser("show").add_argument("run_id")
+    sub.add_parser("logs", help="print a run's stdout and stderr").add_argument("run_id")
     cp = sub.add_parser("compare", help="compare reported metrics of two runs")
     cp.add_argument("run_a"); cp.add_argument("run_b")
     cp.add_argument("--rel-tol", type=float, required=True)
@@ -36,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
             rec = rerun(args.run_id, paths, ex)
             print(json.dumps(rec, indent=2))
             return 0 if rec["outcome"] == "pass" else 1
+        elif args.cmd == "logs":
+            h = load_result(paths, args.run_id)["harness"]
+            for stream in ("stdout", "stderr"):
+                print(f"--- {stream} ---")
+                print(get_path(paths.store, h[stream]).read_text(errors="replace"), end="")
         elif args.cmd == "compare":
             rec = compare(args.run_a, args.run_b, args.rel_tol, paths)
             print(json.dumps(rec, indent=2))

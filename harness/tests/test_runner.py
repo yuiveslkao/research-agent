@@ -107,3 +107,12 @@ def test_compare_two_runs(repo, paths, tmp_path):
     b = submit_run(make_spec(tmp_path), paths, LocalProcessExecutor())
     assert compare(a, b, 1e-6, paths)["outcome"] == "pass"
     assert compare(a, b, 1e-9, paths)["outcome"] == "fail"
+
+
+def test_cli_logs(repo, paths, tmp_path, capsys):
+    from rharness.cli import main
+    commit_job(repo, "import sys; print('hello'); print('boom', file=sys.stderr); raise SystemExit(1)\n")
+    rid = submit_run(make_spec(tmp_path), paths, LocalProcessExecutor())
+    assert main(["--root", str(repo), "logs", rid]) == 0
+    out = capsys.readouterr().out
+    assert "hello" in out and "boom" in out

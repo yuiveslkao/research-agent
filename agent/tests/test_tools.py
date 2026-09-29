@@ -8,7 +8,9 @@ from researchagent.tools import ToolError
 SCRIPT = 'println("hi")  # experiment body is irrelevant to the fake julia\n'
 
 
-def submit(ctx, script=SCRIPT, **kw):
+def submit(ctx, script=SCRIPT, note=True, **kw):
+    if note and ctx.settings.role == "researcher":
+        tools.add_note(ctx, "hypothesis", "H: the fake experiment reports x")   # pre-registration gate
     return tools.submit_experiment(ctx, "rate test", "error decays like exp(-cN/logN)", script,
                                    params=kw.pop("params", {"x": "1.5"}), **kw)
 
@@ -135,6 +137,7 @@ def test_list_runs_filters_by_campaign(ctx):
 
 
 def test_submit_check_outcomes(ctx):
+    tools.add_note(ctx, "hypothesis", "H: Good holds, Bad is violated")
     good = "module Good\nconst DOMAIN = (N = 8:16,)\nmargin(t, ::Type{T}) where {T<:Real} = one(T)\nend\n"
     bad = good.replace("Good", "Bad") + "# PLANTED flaw\n"
     r = tools.submit_check(ctx, "falsify", "Good", "Good", good)
@@ -164,7 +167,7 @@ def test_notes_and_roles(make_ctx):
     with pytest.raises(ToolError, match="unknown run id"):
         tools.add_note(res, "finding", "x", run_ids=["R-20260101T000000-abcdef"])
     ns = tools.read_notes(cri)
-    assert [n["kind"] for n in ns] == ["hypothesis", "decision", "critique"]
+    assert [n["kind"] for n in ns] == ["hypothesis", "hypothesis", "decision", "critique"]   # first: submit() helper
     assert [n["kind"] for n in tools.read_notes(cri, kind="critique")] == ["critique"]
 
 
@@ -181,3 +184,42 @@ def test_tomlw_roundtrip():
     from researchagent import tomlw
     d = {"a": 1, "s": 'q"uote\nline', "t": True, "l": [1, 2], "sub": {"x": "1.5", "deep": {"y": [0.5]}}}
     assert tomllib.loads(tomlw.dumps(d)) == d
+
+
+def test_finding_must_cite_a_run(ctx):
+    with pytest.raises(ToolError, match="finding must cite at least one run"):
+        tools.add_note(ctx, "finding", "I believe the error decays")
+    r = submit(ctx)
+    assert tools.add_note(ctx, "finding", "error decays", run_ids=[r["run_id"]])["kind"] == "finding"
+
+
+def test_hypothesis_required_before_experiment_and_after_each_finding(ctx, make_ctx):
+    with pytest.raises(ToolError, match="Pre-register first"):
+        tools.submit_experiment(ctx, "t", "h", script=SCRIPT)
+    tools.add_note(ctx, "hypothesis", "H1")
+    r = tools.submit_experiment(ctx, "t", "h", script=SCRIPT)                # covered by H1
+    tools.submit_experiment(ctx, "retry or precision check", "h", script=SCRIPT)   # same cycle: still covered
+    tools.rerun_run(ctx, r["run_id"])                                        # reruns never need one
+    tools.add_note(ctx, "finding", "F1", run_ids=[r["run_id"]])
+    with pytest.raises(ToolError, match="Pre-register first"):              # a new cycle needs a new hypothesis
+        tools.submit_experiment(ctx, "t2", "h", script=SCRIPT)
+    with pytest.raises(ToolError, match="Pre-register first"):              # checks are gated too
+        tools.submit_check(ctx, "falsify", "Good", "Good", "module Good\nend\n")
+    tools.add_note(ctx, "hypothesis", "H2")
+    tools.submit_experiment(ctx, "t2", "h", script=SCRIPT)
+    critic = make_ctx("critic")                                              # the critic is exempt
+    tools.submit_experiment(critic, "attack", "h", script=SCRIPT)
+
+
+def test_critique_must_cite_a_run_from_this_campaign(make_ctx):
+    from researchagent.config import set_current_campaign
+    res, cri = make_ctx("researcher"), make_ctx("critic")
+    set_current_campaign(res.paths.ledger, "C-old", 10)
+    old = submit(res)
+    set_current_campaign(res.paths.ledger, "C-new", 10)
+    new = submit(res)
+    with pytest.raises(ToolError, match="critique must cite at least one run from this campaign"):
+        tools.add_note(cri, "critique", "no runs", status="challenge")
+    with pytest.raises(ToolError, match="critique must cite at least one run from this campaign"):
+        tools.add_note(cri, "critique", "only an old campaign's run", status="challenge", run_ids=[old["run_id"]])
+    assert tools.add_note(cri, "critique", "ok", status="challenge", run_ids=[old["run_id"], new["run_id"]])

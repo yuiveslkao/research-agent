@@ -122,6 +122,26 @@ def _require_role(ctx: Ctx, allowed: set[str]) -> None:
         raise ToolError(f"role {ctx.settings.role!r} may not use this tool")
 
 
+def _run_campaign(ctx: Ctx, run_id: str) -> str | None:
+    if not isinstance(run_id, str) or not RUN_ID.match(run_id):
+        return None
+    f = ctx.paths.ledger / "runs" / run_id / "spec.toml"
+    return tomllib.loads(f.read_text()).get("meta", {}).get("campaign") if f.exists() else None
+
+
+def _require_hypothesis(ctx: Ctx) -> None:
+    """Pre-registration: the researcher must have written a hypothesis note since its last finding."""
+    if ctx.settings.role != "researcher":
+        return
+    ns = notes_mod.read_notes(ctx.paths.ledger, ctx.campaign["id"], limit=100_000)
+    last_finding = max((i for i, n in enumerate(ns) if n["kind"] == "finding" and n["role"] == "researcher"),
+                       default=-1)
+    if not any(n["kind"] == "hypothesis" and n["role"] == "researcher" for n in ns[last_finding + 1:]):
+        raise ToolError("Pre-register first: call add_note(kind='hypothesis') stating what you expect and what "
+                        "result would refute it, then submit. One hypothesis covers your runs (retries, reruns, "
+                        "precision checks) until your next finding.")
+
+
 def run_summary(ctx: Ctx, run_id: str) -> dict:
     spec, res = _load(ctx, run_id)
     meta = spec.get("meta", {})
@@ -234,6 +254,7 @@ def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str = "", p
                       rel_tol: float | None = None, base_run: str | None = None,
                       edits: list[dict] | None = None) -> dict:
     _require_role(ctx, {"researcher", "critic", "human"})
+    _require_hypothesis(ctx)
     if not title.strip() or len(title) > 100:
         raise ToolError("title must be 1..100 characters")
     if base_run:
@@ -264,6 +285,7 @@ def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: 
                  precision_bits: int = 256, evals: int = 1000, starts: int = 6, grid: int = 3,
                  walltime_s: int = 900, seed: int = 1) -> dict:
     _require_role(ctx, {"researcher", "critic", "human"})
+    _require_hypothesis(ctx)
     if kind not in ("highprec", "falsify"):
         raise ToolError("kind must be 'highprec' or 'falsify'")
     if not IDENT.match(name) or not IDENT.match(module):
@@ -364,6 +386,17 @@ def compare_runs(ctx: Ctx, run_a: str, run_b: str, rel_tol: float = 1e-20) -> di
 
 def add_note(ctx: Ctx, kind: str, text: str, status: str | None = None,
              run_ids: list[str] | None = None) -> dict:
+    run_ids = list(run_ids or [])
+    if kind in notes_mod.KINDS and kind not in notes_mod.ROLE_KINDS.get(ctx.settings.role, set()):
+        raise ToolError(f"role {ctx.settings.role!r} may not write {kind!r} notes "
+                        f"(allowed: {sorted(notes_mod.ROLE_KINDS.get(ctx.settings.role, set()))})")
+    if kind == "finding" and not run_ids:
+        raise ToolError("a finding must cite at least one run in run_ids; run an experiment first")
+    if kind == "critique":
+        cid = ctx.campaign["id"]
+        if not any(_run_campaign(ctx, r) == cid for r in run_ids):
+            raise ToolError(f"a critique must cite at least one run from this campaign ({cid}) in run_ids: "
+                            "the run you examined or the attack you started")
     try:
         n = notes_mod.add_note(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], kind, text,
                                status, run_ids)

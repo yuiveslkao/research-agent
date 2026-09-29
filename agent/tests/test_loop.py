@@ -68,9 +68,11 @@ def test_campaign_stops_at_round_limit(root, tmp_path):
             self.turn += 1
             c = self.ctx(profile)
             if profile == "researcher":
+                tools.add_note(c, "hypothesis", "H")
+                tools.submit_experiment(c, "e", "H", "println(1)\n")
                 tools.add_note(c, "decision", "more", status="continue")
             else:
-                tools.add_note(c, "critique", "no", status="challenge")
+                tools.add_note(c, "critique", "no", status="challenge", run_ids=[tools.list_runs(c)[-1]["run_id"]])
             return ""
     res = run_campaign("q", rounds=2, root=root, agent=Stubborn(root, str(tmp_path / "fakejulia")))
     assert res.stopped_by == "max_rounds" and res.rounds_run == 2
@@ -140,9 +142,12 @@ def test_accept_without_independent_attack_is_ignored(root, tmp_path):
             self.turn += 1
             c = self.ctx(profile)
             if profile == "researcher":
+                tools.add_note(c, "hypothesis", "H")
+                tools.submit_experiment(c, "e", "H", "println(1)\n")
                 tools.add_note(c, "decision", "done", status="conclude")
-            else:
-                tools.add_note(c, "critique", "looks fine", status="accept")   # no run, no check
+            else:   # cites the researcher's run but starts no attack of its own
+                tools.add_note(c, "critique", "looks fine", status="accept",
+                               run_ids=[tools.list_runs(c)[-1]["run_id"]])
             return ""
     res = run_campaign("q", rounds=2, root=root, agent=Lazy(root, str(tmp_path / "fakejulia")))
     assert res.stopped_by == "max_rounds"

@@ -47,6 +47,8 @@ def test_tools_listed_with_contract_in_description(root, tmp_path):
 
 def test_full_tool_round_trip(root, tmp_path):
     async def fn(s):
+        early = _payload(await s.call_tool("submit_experiment", {"title": "t", "hypothesis": "h", "script": "println(1)\n"}))
+        await s.call_tool("add_note", {"kind": "hypothesis", "text": "H"})
         sub = _payload(await s.call_tool("submit_experiment", {
             "title": "t", "hypothesis": "h", "script": "println(1)\n", "params": {"x": "2.5"}}))
         insp = _payload(await s.call_tool("inspect_run", {"run_id": sub["run_id"]}))
@@ -56,8 +58,9 @@ def test_full_tool_round_trip(root, tmp_path):
         note = _payload(await s.call_tool("add_note", {"kind": "hypothesis", "text": "H",
                                                        "run_ids": [sub["run_id"]]}))
         crit = _payload(await s.call_tool("add_note", {"kind": "critique", "text": "x", "status": "accept"}))
-        return sub, insp, art, rr, bad, note, crit
-    sub, insp, art, rr, bad, note, crit = _drive(root, tmp_path, "researcher", fn)
+        return early, sub, insp, art, rr, bad, note, crit
+    early, sub, insp, art, rr, bad, note, crit = _drive(root, tmp_path, "researcher", fn)
+    assert early["ok"] is False and "Pre-register first" in early["error"]
     assert sub["status"] == "completed" and insp["reported"]["metrics"]["x"] == "2.5"
     assert art["text"].startswith("N,err")
     assert rr["outcome"] == "pass"

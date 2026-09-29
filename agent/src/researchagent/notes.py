@@ -29,7 +29,8 @@ def add_note(ledger: Path, role: str, campaign: str, kind: str, text: str,
         raise NoteError(f"role {role!r} may not write {kind!r} notes "
                         f"(allowed: {sorted(ROLE_KINDS.get(role, set()))})")
     if not text.strip() or len(text) > MAX_TEXT:
-        raise NoteError(f"text must be 1..{MAX_TEXT} characters")
+        raise NoteError(f"text is {len(text)} characters; it must be 1..{MAX_TEXT}. Shorten it "
+                        "(numbers, run ids, the decisive argument) and resubmit")
     if kind in STATUS:
         if status not in STATUS[kind]:
             raise NoteError(f"{kind} notes need status in {sorted(STATUS[kind])}")

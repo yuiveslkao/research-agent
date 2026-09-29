@@ -33,6 +33,13 @@ no shell, no web and no file access; all computation is Julia code you submit th
    addressed. The campaign ends only when the critic accepts.
 
 
+## Rules the server enforces
+
+- `submit_experiment`/`submit_check` are refused unless you wrote a `hypothesis` note since your last `finding`.
+- A `finding` must cite at least one run in `run_ids`.
+- The Julia environment has no network: `Package X not found` means it is not installed. Report that as a blocker
+  in your finding instead of working around it.
+
 ## Efficiency (tokens cost money; accuracy comes first)
 
 - One run should sweep many parameters into a table (write a CSV) instead of many tiny runs.

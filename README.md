@@ -12,3 +12,5 @@ configurations, conformal maps). Design notes and the Phase 0 plan: [docs/phase0
 | `specs/` | Example RunSpecs for the Phase 0 DE/Sinc benchmark |
 | `ledger/` | `runs/` (sealed records) and `checks/`; committed |
 | `store/`, `work/` | Content-addressed outputs and scratch; git-ignored |
+
+Open items and decisions: [docs/agent.md](docs/agent.md#decisions-and-open-items). Golden questions (to be written): [docs/golden_questions.md](docs/golden_questions.md).

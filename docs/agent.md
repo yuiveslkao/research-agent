@@ -90,3 +90,15 @@ Verified in the development sandbox (23 agent tests, 19 harness tests, all with 
 - Notes are free text: the driver reads only `status` fields, not the content.
 - The Critic's attack is checked for existence, not quality.
 - No literature tool, no claim/grade ledger, no `interval_certify`.
+
+## Decisions and open items
+
+- **Golden questions:** to be written by the owner; see [golden_questions.md](golden_questions.md). Until then, accuracy is judged by reading campaign reports.
+- **Server-enforced gates:** a `finding` must cite at least one run; `submit_experiment`/`submit_check` need a researcher `hypothesis` note since the last `finding` (reruns and the critic are exempt); a `critique` must cite at least one run from the current campaign; an "accept" only ends a campaign if the critic started a run, check or rerun that round.
+- **Compression:** explicitly off in both profiles (Hermes' default is on at 50% of the context window). Summaries paraphrase run ids and digits and change the cached prefix; the ledger is the durable memory instead. Enable with `research-install-profiles --compression` only if turns approach half the context window.
+- **Turn limits:** `agent.max_turns` 60 is a safety net only (Hermes' own default is unlimited because caps caused silent mid-task truncation); `agent.run_budget_seconds` 1200 makes Hermes ask the agent to wrap up at 80% of that; the driver kills a turn at 1800 s.
+- **Literature:** arXiv only, when it is added (not built yet).
+- **Julia packages:** only SpecialFunctions plus the standard library for now; the run sandbox has no network, so a missing package shows up as `Package X not found`. Add packages on the host and commit `Manifest.toml`, e.g.
+  `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
+- **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.
+- **Not built:** `--resume` for interrupted campaigns, literature tool, claim/grade ledger, brief generator.

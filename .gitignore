@@ -10,3 +10,4 @@ ledger/checks/K-*.json
 ledger/notes/
 ledger/campaigns/
 ledger/audit.jsonl
+ledger/calls.jsonl

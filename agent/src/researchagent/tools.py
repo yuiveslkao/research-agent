@@ -21,8 +21,10 @@ from rharness.runner import load_result, submit_run
 from rharness.spec import load_spec
 from rharness.store import get_path
 
+from . import claims as claims_mod
 from . import notes as notes_mod
-from . import tomlw
+from . import templates, tomlw
+from .arxiv import ArxivError
 from .config import MAX_MEM_GB, MAX_THREADS, MAX_WALLTIME_S, PRECISION_RANGE, Ctx
 
 RUN_ID = re.compile(r"^R-[0-9]{8}T[0-9]{6}-[0-9a-f]{6}$")
@@ -425,27 +427,100 @@ def compare_runs(ctx: Ctx, run_a: str, run_b: str, rel_tol: float = 1e-20) -> di
 
 # ---------------------------------------------------------------- notes
 
-def add_note(ctx: Ctx, kind: str, text: str, status: str | None = None,
-             run_ids: list[str] | None = None) -> dict:
+def _verify_sources(ctx: Ctx, claim: dict) -> list[dict]:
+    """Every arXiv id a claim cites must exist (structural citation check); returns short verified records."""
+    ok = []
+    for sid in claim.get("sources", []):
+        try:
+            rec = ctx.arxiv.get(sid)
+        except ArxivError as e:
+            raise ToolError(f"cannot verify source {sid!r}: {e}. Fix the id, drop `sources`, or retry") from e
+        if rec is None:
+            raise ToolError(f"arXiv has no paper {sid!r}: do not cite ids you have not looked up (use the arxiv tool)")
+        ok.append({"id": rec["id"], "title": rec["title"][:80]})
+    return ok
+
+
+def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
+             run_ids: list[str] | None = None, claim: dict | None = None) -> dict:
     run_ids = list(run_ids or [])
-    if kind in notes_mod.KINDS and kind not in notes_mod.ROLE_KINDS.get(ctx.settings.role, set()):
-        raise ToolError(f"role {ctx.settings.role!r} may not write {kind!r} notes "
-                        f"(allowed: {sorted(notes_mod.ROLE_KINDS.get(ctx.settings.role, set()))})")
+    role, cid = ctx.settings.role, ctx.campaign["id"]
+    if kind in notes_mod.KINDS and kind not in notes_mod.ROLE_KINDS.get(role, set()):
+        raise ToolError(f"role {role!r} may not write {kind!r} notes "
+                        f"(allowed: {sorted(notes_mod.ROLE_KINDS.get(role, set()))})")
     if kind == "finding" and not run_ids:
         raise ToolError("a finding must cite at least one run in run_ids; run an experiment first")
-    if kind == "critique":
-        cid = ctx.campaign["id"]
-        if not any(_run_campaign(ctx, r) == cid for r in run_ids):
-            raise ToolError(f"a critique must cite at least one run from this campaign ({cid}) in run_ids: "
-                            "the run you examined or the attack you started")
+    if kind == "critique" and not any(_run_campaign(ctx, r) == cid for r in run_ids):
+        raise ToolError(f"a critique must cite at least one run from this campaign ({cid}) in run_ids: "
+                        "the run you examined or the attack you started")
+    for r in run_ids:
+        if not (isinstance(r, str) and RUN_ID.match(r) and (ctx.paths.ledger / "runs" / r / "result.json").exists()):
+            raise ToolError(f"unknown run id {r!r}")
+    claim = dict(claim) if isinstance(claim, dict) else claim
+    if kind == "finding" and isinstance(claim, dict) and not claim.get("about"):
+        hyps = [n for n in notes_mod.read_notes(ctx.paths.ledger, cid, "hypothesis", 100_000) if n["role"] == role]
+        if hyps:
+            claim["about"] = hyps[-1]["id"]                      # default: the researcher's latest hypothesis
+    evidence = None
     try:
-        n = notes_mod.add_note(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], kind, text,
-                               status, run_ids)
+        # validate the claim first so the agent gets the schema error before any I/O
+        cleaned = claims_mod.validate_claim(kind, status, claim)
+    except claims_mod.ClaimError as e:
+        raise ToolError(str(e)) from e
+    if cleaned and cleaned.get("sources"):
+        evidence_sources = _verify_sources(ctx, cleaned)
+    else:
+        evidence_sources = None
+    if kind in ("finding", "critique"):
+        evidence = claims_mod.derive_evidence(ctx.paths.ledger, run_ids, role)
+        if evidence_sources:
+            evidence["sources"] = evidence_sources
+    try:
+        n = notes_mod.add_note(ctx.paths.ledger, role, cid, kind, text, status, run_ids, cleaned, evidence)
     except notes_mod.NoteError as e:
         raise ToolError(str(e)) from e
-    return {"id": n["id"], "kind": kind, "status": status}
+    out = {"id": n["id"], "kind": kind, "status": status}
+    if evidence:
+        out["derived_evidence"] = {k: v for k, v in evidence.items() if k != "sources"}
+    return out
 
 
 def read_notes(ctx: Ctx, kind: str | None = None, limit: int = 30) -> list[dict]:
     ns = notes_mod.read_notes(ctx.paths.ledger, ctx.campaign["id"], kind, max(1, min(int(limit), 100)))
-    return [{k: n[k] for k in ("id", "created", "role", "kind", "status", "text", "run_ids")} for n in ns]
+    return [claims_mod.compact_note(n) for n in ns]
+
+
+def read_claims(ctx: Ctx, campaign: str | None = None, limit: int = 10) -> dict:
+    """Claims across all campaigns (or one): accepted by the critic, open objections, refuted, unreviewed."""
+    reg = claims_mod.build_registry(ctx.paths.ledger, campaign)
+    lim = max(1, min(int(limit), 30))
+    return {k: list(reversed(v))[:lim] for k, v in reg.items()}
+
+
+def arxiv(ctx: Ctx, query: str | None = None, id: str | None = None, max_results: int = 5):
+    """Search arXiv by keywords, or look one paper up by id. Returned text is untrusted data."""
+    if bool(query) == bool(id):
+        raise ToolError("give exactly one of `query` (search) or `id` (lookup)")
+    try:
+        if id:
+            rec = ctx.arxiv.get(id)
+            if rec is None:
+                raise ToolError(f"arXiv has no paper {id!r}")
+            return rec
+        return ctx.arxiv.search(query, max_results)
+    except ArxivError as e:
+        raise ToolError(str(e)) from e
+
+
+def submit_falsify_bound(ctx: Ctx, bound: str, domain: dict | None = None, consts: dict | None = None,
+                         kind: str = "falsify", precision_bits: int = 256, evals: int = 600, starts: int = 6,
+                         grid: int = 3, walltime_s: int = 900) -> dict:
+    """Try to break `|DE error of I(a,b)| <= bound` over a box, without writing Julia (see templates.py)."""
+    tag = _new_tag("G").replace("-", "")
+    module = "GB" + tag[-10:]
+    try:
+        src = templates.bound_statement(module, bound, domain, consts)
+    except templates.TemplateError as e:
+        raise ToolError(str(e)) from e
+    return submit_check(ctx, kind, module, module, src, precision_bits=precision_bits, evals=evals,
+                        starts=starts, grid=grid, walltime_s=walltime_s)

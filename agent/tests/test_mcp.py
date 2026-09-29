@@ -40,7 +40,8 @@ def test_tools_listed_with_contract_in_description(root, tmp_path):
         return {t.name: t for t in (await s.list_tools()).tools}
     tools = _drive(root, tmp_path, "researcher", fn)
     assert {"submit_experiment", "submit_check", "inspect_run", "read_artifact", "list_runs",
-            "rerun_run", "compare_runs", "add_note", "read_notes"} <= set(tools)
+            "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv",
+            "submit_falsify_bound"} <= set(tools)
     assert "Prelude.jl" in tools["submit_experiment"].description
     assert "margin(theta" in tools["submit_check"].description
 
@@ -48,16 +49,16 @@ def test_tools_listed_with_contract_in_description(root, tmp_path):
 def test_full_tool_round_trip(root, tmp_path):
     async def fn(s):
         early = _payload(await s.call_tool("submit_experiment", {"title": "t", "hypothesis": "h", "script": "println(1)\n"}))
-        await s.call_tool("add_note", {"kind": "hypothesis", "text": "H"})
+        await s.call_tool("add_note", {"kind": "hypothesis", "claim": {"statement": "H", "scope": "s", "refuted_if": "r"}})
         sub = _payload(await s.call_tool("submit_experiment", {
             "title": "t", "hypothesis": "h", "script": "println(1)\n", "params": {"x": "2.5"}}))
         insp = _payload(await s.call_tool("inspect_run", {"run_id": sub["run_id"]}))
         art = _payload(await s.call_tool("read_artifact", {"run_id": sub["run_id"], "path": "out/data.csv"}))
         rr = _payload(await s.call_tool("rerun_run", {"run_id": sub["run_id"]}))
         bad = _payload(await s.call_tool("inspect_run", {"run_id": "../../x"}))
-        note = _payload(await s.call_tool("add_note", {"kind": "hypothesis", "text": "H",
-                                                       "run_ids": [sub["run_id"]]}))
-        crit = _payload(await s.call_tool("add_note", {"kind": "critique", "text": "x", "status": "accept"}))
+        note = _payload(await s.call_tool("add_note", {"kind": "hypothesis", "run_ids": [sub["run_id"]],
+                                                       "claim": {"statement": "H2", "scope": "s", "refuted_if": "r"}}))
+        crit = _payload(await s.call_tool("add_note", {"kind": "critique", "status": "accept", "claim": {"statement": "x", "scope": "s"}}))
         return early, sub, insp, art, rr, bad, note, crit
     early, sub, insp, art, rr, bad, note, crit = _drive(root, tmp_path, "researcher", fn)
     assert early["ok"] is False and "Pre-register first" in early["error"]

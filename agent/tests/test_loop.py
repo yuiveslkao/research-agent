@@ -1,8 +1,9 @@
 import json
 
+from conftest import ACC, CHAL, FND, HYP
 from researchagent import tools
 from researchagent.config import Ctx, Settings
-from researchagent.loop import HermesCLI, campaign_state, run_campaign
+from researchagent.loop import HermesCLI, campaign_state, next_step, run_campaign
 
 
 def note(kind, status, t):
@@ -38,16 +39,17 @@ class ScriptedAgent:
         assert seen[0]["kind"] == "question"                        # the driver posted the question
         if profile == "researcher":
             rnd = (self.turn + 1) // 2
-            tools.add_note(c, "hypothesis", f"H{rnd}")
+            tools.add_note(c, "hypothesis", claim=HYP(f"H{rnd}"))
             r = tools.submit_experiment(c, f"exp{rnd}", f"H{rnd}", "println(1)\n", params={"x": str(rnd)})
-            tools.add_note(c, "finding", f"F{rnd}", run_ids=[r["run_id"]])
+            tools.add_note(c, "finding", claim=FND(f"F{rnd}"), run_ids=[r["run_id"]])
             tools.add_note(c, "decision", "done" if rnd == 2 else "next", status="conclude" if rnd == 2 else "continue")
             return f"researcher round {rnd} ok"
         last_run = tools.list_runs(c)[-1]["run_id"]
         rr = tools.rerun_run(c, last_run)
         rnd = self.turn // 2
-        tools.add_note(c, "critique", "reproduced" if rnd == 2 else "scope too broad",
-                       status="accept" if rnd == 2 else "challenge", run_ids=[last_run, rr["rerun"]])
+        tools.add_note(c, "critique", status="accept" if rnd == 2 else "challenge",
+                       claim={**ACC, "statement": "reproduced claim"} if rnd == 2 else {**CHAL, "objection": "scope too broad"},
+                       run_ids=[last_run, rr["rerun"]])
         return f"critic round {rnd} ok"
 
 
@@ -56,9 +58,9 @@ def test_campaign_runs_until_critic_accepts(root, tmp_path):
     res = run_campaign("Does the error decay?", rounds=5, root=root, agent=agent, max_runs=20)
     assert res.stopped_by == "accepted" and res.rounds_run == 2 and not res.errors
     text = res.report_path.read_text()
-    assert "Does the error decay?" in text and "scope too broad" in text and "reproduced" in text
+    assert "Does the error decay?" in text and "scope too broad" in text and "reproduced claim" in text
     assert "## Outcome" in text and text.index("## Outcome") < text.index("## Notes")
-    assert "**Last critic verdict** [accept]" in text
+    assert "**Accepted claim**" in text and "evidence (server-derived)" in text
     assert text.count("| experiment |") == 4 and "researcher round 2 ok" in text
     meta = json.loads((res.report_path.parent / "campaign.json").read_text())
     assert meta["max_runs"] == 20
@@ -70,11 +72,11 @@ def test_campaign_stops_at_round_limit(root, tmp_path):
             self.turn += 1
             c = self.ctx(profile)
             if profile == "researcher":
-                tools.add_note(c, "hypothesis", "H")
+                tools.add_note(c, "hypothesis", claim=HYP("H"))
                 tools.submit_experiment(c, "e", "H", "println(1)\n")
                 tools.add_note(c, "decision", "more", status="continue")
             else:
-                tools.add_note(c, "critique", "no", status="challenge", run_ids=[tools.list_runs(c)[-1]["run_id"]])
+                tools.add_note(c, "critique", status="challenge", claim=CHAL, run_ids=[tools.list_runs(c)[-1]["run_id"]])
             return ""
     res = run_campaign("q", rounds=2, root=root, agent=Stubborn(root, str(tmp_path / "fakejulia")))
     assert res.stopped_by == "max_rounds" and res.rounds_run == 2
@@ -144,13 +146,85 @@ def test_accept_without_independent_attack_is_ignored(root, tmp_path):
             self.turn += 1
             c = self.ctx(profile)
             if profile == "researcher":
-                tools.add_note(c, "hypothesis", "H")
+                tools.add_note(c, "hypothesis", claim=HYP("H"))
                 tools.submit_experiment(c, "e", "H", "println(1)\n")
                 tools.add_note(c, "decision", "done", status="conclude")
             else:   # cites the researcher's run but starts no attack of its own
-                tools.add_note(c, "critique", "looks fine", status="accept",
+                tools.add_note(c, "critique", status="accept", claim=ACC,
                                run_ids=[tools.list_runs(c)[-1]["run_id"]])
             return ""
     res = run_campaign("q", rounds=2, root=root, agent=Lazy(root, str(tmp_path / "fakejulia")))
     assert res.stopped_by == "max_rounds"
     assert "ran no independent attack" in res.report_path.read_text()
+
+
+def test_next_step_from_notes():
+    d = lambda: {"kind": "decision", "status": "continue", "created": "1"}
+    c = lambda: {"kind": "critique", "status": "challenge", "created": "1"}
+    assert next_step([]) == (1, "researcher")
+    assert next_step([d()]) == (1, "critic")
+    assert next_step([d(), c()]) == (2, "researcher")
+    assert next_step([d(), c(), d()]) == (2, "critic")
+
+
+class Recording(ScriptedAgent):
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.asked = []
+
+    def ask(self, profile, prompt):
+        self.asked.append(profile)
+        return super().ask(profile, prompt)
+
+
+def test_second_campaign_is_seeded_with_earlier_accepted_claims(root, tmp_path):
+    julia = str(tmp_path / "fakejulia")
+    first = run_campaign("Q1?", rounds=5, root=root, agent=Recording(root, julia), max_runs=20)
+    assert first.stopped_by == "accepted"
+
+    class Quiet:
+        def ask(self, profile, prompt):
+            return ""
+    second = run_campaign("Q2?", rounds=1, root=root, agent=Quiet(), max_runs=20)
+    ctx = Ctx(Settings(root=root, role="human", executor="local"))
+    seed = tools.notes_mod.read_notes(ctx.paths.ledger, second.campaign_id)[0]["text"]
+    assert seed.startswith("Q2?") and "Established by earlier campaigns" in seed
+    assert "ACCEPTED" in seed and "reproduced claim" in seed
+    third = run_campaign("Q3?", rounds=1, root=root, agent=Quiet(), max_runs=20, prior=False)
+    assert tools.notes_mod.read_notes(ctx.paths.ledger, third.campaign_id)[0]["text"] == "Q3?"
+
+
+def test_resume_continues_where_the_campaign_stopped(root, tmp_path):
+    julia = str(tmp_path / "fakejulia")
+
+    class Flaky(Recording):
+        failed = False
+
+        def ask(self, profile, prompt):
+            if profile == "critic" and not Flaky.failed:
+                Flaky.failed = True
+                raise RuntimeError("hermes exited 2: boom")
+            return super().ask(profile, prompt)
+
+    agent = Flaky(root, julia)
+    res = run_campaign("Resume?", rounds=4, root=root, agent=agent, max_runs=20)
+    assert res.stopped_by.startswith("error:") and agent.asked == ["researcher"]
+    agent.asked.clear()
+    res2 = run_campaign(None, None, root, agent, max_runs=None, campaign_id=res.campaign_id, resume=True)
+    assert agent.asked == ["critic", "researcher", "critic"]        # starts with the critic of round 1
+    assert res2.stopped_by == "accepted" and res2.campaign_id == res.campaign_id
+    turns = [json.loads(x) for x in (res.report_path.parent / "turns.jsonl").read_text().splitlines()]
+    assert [(t["round"], t["role"]) for t in turns] == [(1, "researcher"), (1, "critic"), (2, "researcher"), (2, "critic")]
+    report = res2.report_path.read_text()
+    assert "Resume?" in report and report.count("**Round") == 4
+    agent.asked.clear()
+    res3 = run_campaign(None, None, root, agent, campaign_id=res.campaign_id, resume=True)   # already accepted
+    assert agent.asked == [] and res3.stopped_by == "accepted"
+
+
+def test_report_shows_structured_claims_usage_and_falsification(root, tmp_path):
+    res = run_campaign("Q?", rounds=3, root=root, agent=Recording(root, str(tmp_path / "fakejulia")), max_runs=20)
+    text = res.report_path.read_text()
+    assert "- **statement:** reproduced claim" in text and "- **scope:** test scope" in text
+    assert "- **evidence (server-derived):**" in text and "## Usage" in text
+    assert "**Falsification attempted:** no" in text and "Total turn time" in text

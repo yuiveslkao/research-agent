@@ -18,8 +18,8 @@ from pathlib import Path
 import yaml
 
 ROLES = ("researcher", "critic")
-COMMON_TOOLS = ["submit_experiment", "submit_check", "inspect_run", "read_artifact", "list_runs",
-                "rerun_run", "compare_runs", "add_note", "read_notes"]
+COMMON_TOOLS = ["submit_experiment", "submit_check", "submit_falsify_bound", "inspect_run", "read_artifact",
+                "list_runs", "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv"]
 # Every built-in / plugin toolset name we know of. `agent.disabled_toolsets` is applied by Hermes as a strict
 # subtraction after toolset resolution, so listing all of them leaves only the MCP tools. The `file` toolset
 # is the one that provides read_file/write_file/patch/search_files (and terminal).

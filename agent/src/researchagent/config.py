@@ -9,6 +9,7 @@ from pathlib import Path
 from rharness.executor import DockerExecutor, Executor, LocalProcessExecutor
 from rharness.runner import Paths
 
+from .arxiv import ArxivClient
 from .lab import Lab
 
 # Hard caps enforced server-side, whatever the agent asks for.
@@ -67,12 +68,14 @@ class Ctx:
     executor: Executor | None = None
     lab: Lab = field(init=False)
     paths: Paths = field(init=False)
+    arxiv: ArxivClient = field(init=False)
 
     def __post_init__(self):
         s = self.settings
         self.lab = Lab(s.root)
         self.paths = Paths(repo=self.lab.dir, ledger=s.root / "ledger",
                            store=s.root / "store", work=s.root / "work")
+        self.arxiv = ArxivClient(s.root / "store" / "arxiv")
         if self.executor is None:
             self.executor = make_executor(s.executor)
 

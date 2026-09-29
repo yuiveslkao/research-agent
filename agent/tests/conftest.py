@@ -25,7 +25,7 @@ if script.endswith("falsify.jl") or script.endswith("highprec.jl"):
     json.dump({{"check": {{"kind": kind, "outcome": outcome}}, "metrics": {{"score": "0.5"}}}}, open(os.path.join(out, "reported.json"), "w"))
     sys.exit(0)
 p = spec.get("params", {{}})
-json.dump({{"metrics": {{"x": str(p.get("x", "none")), "bits": str(spec["numerics"]["precision_bits"])}}, "notes": "fake"}},
+json.dump({{"metrics": {{"x": str(p.get("x", "none"))}}, "notes": "bits=" + str(spec["numerics"]["precision_bits"])}},
           open(os.path.join(out, "reported.json"), "w"))
 open(os.path.join(out, "data.csv"), "w").write("N,err\\n8,1e-7\\n16,1e-13\\n")
 '''
@@ -61,3 +61,15 @@ def make_ctx(root, tmp_path):
 @pytest.fixture
 def ctx(make_ctx):
     return make_ctx("researcher")
+
+
+def HYP(text="H"):
+    return {"statement": text, "scope": "test scope", "refuted_if": "the fake result differs"}
+
+
+def FND(text="F", result="supports", **kw):
+    return {"statement": text, "scope": "test scope", "result": result, **kw}
+
+
+ACC = {"statement": "the supported claim", "scope": "test scope", "limits": "tested range only"}
+CHAL = {"objection": "not convinced: scope too broad", "resolve_by": "a wider sweep"}

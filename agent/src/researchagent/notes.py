@@ -6,6 +6,8 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .claims import MAX_TEXT_WITH_CLAIM, ClaimError, validate_claim
+
 KINDS = {"question", "hypothesis", "finding", "decision", "critique"}
 ROLE_KINDS = {
     "researcher": {"question", "hypothesis", "finding", "decision"},
@@ -21,21 +23,27 @@ class NoteError(ValueError):
     pass
 
 
-def add_note(ledger: Path, role: str, campaign: str, kind: str, text: str,
-             status: str | None = None, run_ids: list[str] | None = None) -> dict:
+def add_note(ledger: Path, role: str, campaign: str, kind: str, text: str = "",
+             status: str | None = None, run_ids: list[str] | None = None, claim: dict | None = None,
+             evidence: dict | None = None) -> dict:
     if kind not in KINDS:
         raise NoteError(f"kind must be one of {sorted(KINDS)}")
     if kind not in ROLE_KINDS.get(role, set()):
         raise NoteError(f"role {role!r} may not write {kind!r} notes "
                         f"(allowed: {sorted(ROLE_KINDS.get(role, set()))})")
-    if not text.strip() or len(text) > MAX_TEXT:
-        raise NoteError(f"text is {len(text)} characters; it must be 1..{MAX_TEXT}. Shorten it "
-                        "(numbers, run ids, the decisive argument) and resubmit")
     if kind in STATUS:
         if status not in STATUS[kind]:
             raise NoteError(f"{kind} notes need status in {sorted(STATUS[kind])}")
     elif status is not None:
         raise NoteError(f"{kind} notes take no status")
+    try:
+        claim = validate_claim(kind, status, claim)
+    except ClaimError as e:
+        raise NoteError(str(e)) from e
+    limit = MAX_TEXT_WITH_CLAIM if claim else MAX_TEXT
+    if len(text) > limit or (not claim and not text.strip()):
+        raise NoteError(f"text is {len(text)} characters; it must be {'0' if claim else '1'}..{limit}. Shorten it "
+                        "(the substance belongs in `claim`; text is optional extra context)")
     run_ids = list(run_ids or [])
     for rid in run_ids:
         if not (ledger / "runs" / rid / "result.json").exists():
@@ -43,7 +51,8 @@ def add_note(ledger: Path, role: str, campaign: str, kind: str, text: str,
     now = datetime.now(timezone.utc)
     note_id = "N-" + now.strftime("%Y%m%dT%H%M%S%f") + "-" + secrets.token_hex(2)
     note = {"id": note_id, "created": now.isoformat(timespec="microseconds"), "role": role,
-            "campaign": campaign, "kind": kind, "status": status, "text": text, "run_ids": run_ids}
+            "campaign": campaign, "kind": kind, "status": status, "text": text, "run_ids": run_ids,
+            "claim": claim, "evidence": evidence}
     d = ledger / "notes"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{note_id}.json").write_text(json.dumps(note, indent=2) + "\n", encoding="utf-8")

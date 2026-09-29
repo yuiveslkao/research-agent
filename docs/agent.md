@@ -22,12 +22,45 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | `submit_check` | both | Same for an executable statement, run through `falsify` or `highprec` |
 | `inspect_run`, `read_artifact`, `list_runs` | both | Read records: status, params, reported metrics, output files, stdout/stderr, the Julia source that ran |
 | `rerun_run`, `compare_runs` | both | Reproduce a run from its sealed spec; compare metrics of two runs (e.g. 2 precisions) |
-| `add_note`, `read_notes` | both | Shared notes. Researcher writes question/hypothesis/finding/decision; Critic writes critique |
+| `submit_falsify_bound` | both | Try to break `|error| <= bound` for the DE testbed over a parameter box, from a bound expression (no Julia to write) |
+| `add_note`, `read_notes` | both | Structured notes (see below). Researcher writes hypothesis/finding/decision; Critic writes critique |
+| `read_claims` | both | Claims across all campaigns: accepted by the critic, open objections, refuted, unreviewed |
+| `arxiv` | both | Search arXiv or look one paper up by id (short records, cached, untrusted text) |
 
 Loop: **hypothesis -> experiment -> inspect -> finding -> decision(continue|conclude) -> critic attack -> critique(accept|challenge)**.
 The campaign ends when the last decision is `conclude` and the last critique is `accept`, **and** the critic
 started at least one run, check or rerun that round (logged in `ledger/audit.jsonl`); otherwise the round limit ends it.
 Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-turn summaries).
+
+## Structured claims and evidence
+
+Every hypothesis, finding and critique carries a short structured `claim` instead of prose (`text` is optional, <= 800 characters):
+
+| note | claim fields |
+|---|---|
+| hypothesis | `statement`, `scope`, `refuted_if` |
+| finding | `statement`, `scope`, `result` (supports/refutes/inconclusive), optional `limits`, `about`, `sources` |
+| critique accept | `statement`, `scope`, optional `limits` (the strongest claim actually supported) |
+| critique challenge | `objection`, optional `resolve_by` |
+
+The **server derives the evidence grade** of findings and critiques from the runs they cite; agents cannot assert it:
+`run` < `reproduced` (a passing rerun) < `cross-checked` (passing `compare_runs` across different precisions, or a run by
+the other role) < `falsification-tested` (a `falsify` check on the cited runs). `sources` are arXiv ids that must exist.
+This is token-neutral or cheaper: the claim fields replace prose and the evidence is not restated. Each new campaign's
+first note carries a brief of earlier accepted claims, open objections and refuted hypotheses (`--no-prior` turns it off,
+`--prior-limit` sizes it); `read_claims` gives the full picture. The report renders claims, grades and a falsification line.
+
+## Usage accounting
+
+The MCP server logs every tool call (argument and result sizes) to `ledger/calls.jsonl`; the driver logs each turn to
+`ledger/campaigns/<id>/turns.jsonl`. `research-usage [--campaign ID] [--hermes]` summarizes them (estimated tokens = chars/3.5)
+and the campaign report has a Usage section. `--hermes` tries to read token counts from Hermes' session database
+(`state.db`); the schema is unknown to me, so it may report nothing. Exact model tokens are best read from the provider console.
+
+## Resuming
+
+`research-loop --resume <campaign-id>` continues an interrupted campaign from the notes: after a researcher decision without
+a critique it starts with the critic, otherwise with the next researcher turn. Rounds and budget default to the campaign's own.
 
 ## Trust boundary
 
@@ -97,9 +130,9 @@ Verified in the development sandbox (23 agent tests, 19 harness tests, all with 
 - **Server-enforced gates:** a `finding` must cite at least one run; `submit_experiment`/`submit_check` need a researcher `hypothesis` note since the last `finding` (reruns and the critic are exempt); a `critique` must cite at least one run from the current campaign; an "accept" only ends a campaign if the critic started a run, check or rerun that round.
 - **Compression:** explicitly off in both profiles (Hermes' default is on at 50% of the context window). Summaries paraphrase run ids and digits and change the cached prefix; the ledger is the durable memory instead. Enable with `research-install-profiles --compression` only if turns approach half the context window.
 - **Turn limits:** `agent.max_turns` 60 is a safety net only (Hermes' own default is unlimited because caps caused silent mid-task truncation); `agent.run_budget_seconds` 1200 makes Hermes ask the agent to wrap up at 80% of that; the driver kills a turn at 1800 s.
-- **Literature:** arXiv only, when it is added (not built yet).
+- **Literature:** arXiv only (the `arxiv` tool and verified `claim.sources`).
 - **Julia packages:** only SpecialFunctions plus the standard library for now; the run sandbox has no network, so a missing package shows up as `Package X not found`. Add packages on the host and commit `Manifest.toml`, e.g.
   `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
 - **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.
 - **Budget:** failed runs are refunded from the run budget but each role may fail at most 3 runs per campaign; the critic keeps 40% of the budget in reserve.
-- **Not built:** `--resume` for interrupted campaigns, literature tool, claim/grade ledger, brief generator.
+- **Not built:** golden-question runner (questions still to be written), claim links beyond `about`, literature beyond arXiv, `interval_certify`.

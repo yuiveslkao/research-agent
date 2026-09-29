@@ -1,0 +1,22 @@
+[project]
+name = "rharness"
+version = "0.0.1"
+description = "Phase 0 run harness: sealed spec/result records, pluggable executors"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+rh = "rharness.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

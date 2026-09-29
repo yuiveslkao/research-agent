@@ -1,0 +1,31 @@
+schema  = "run/0.1"
+kind    = "check"
+mode    = "exploration"
+purpose = "Known-answer test of library/DESinc.jl against the mpmath reference"
+
+[code]
+commit = "HEAD"
+cwd    = "workspace"
+cmd    = ["julia", "--project=envs/main", "scripts/known_answer.jl"]
+
+[env]
+kind    = "julia-project"
+project = "envs/main"
+julia   = "1.11.3"        # must match an existing julia:<tag> Docker image
+
+[numerics]
+arithmetic     = "BigFloat"
+precision_bits = 512
+rng            = "Xoshiro"
+seeds          = [1]
+determinism    = "bitwise"
+device         = "cpu"
+
+[resources]
+threads    = 1
+mem_gb     = 8
+gpu        = false
+walltime_s = 600
+
+[params]
+# none

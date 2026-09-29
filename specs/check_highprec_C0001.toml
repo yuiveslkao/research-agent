@@ -1,0 +1,34 @@
+schema  = "run/0.1"
+kind    = "check"
+mode    = "exploration"
+purpose = "highprec grid check of statement C-0001"
+tests   = ["C-0001"]
+
+[code]
+commit = "HEAD"
+cwd    = "workspace"
+cmd    = ["julia", "--project=envs/main", "../checkers/highprec.jl"]
+
+[env]
+kind    = "julia-project"
+project = "envs/main"
+julia   = "1.11.3"        # must match an existing julia:<tag> Docker image
+
+[numerics]
+arithmetic     = "BigFloat"
+precision_bits = 512
+rng            = "Xoshiro"
+seeds          = [1]
+determinism    = "bitwise"
+device         = "cpu"
+
+[resources]
+threads    = 1
+mem_gb     = 8
+gpu        = false
+walltime_s = 3600
+
+[params]
+statement = "statements/C0001.jl"
+module    = "C0001"
+grid      = 4

@@ -1,3 +1,4 @@
+import json
 import subprocess
 
 import pytest
@@ -223,3 +224,33 @@ def test_critique_must_cite_a_run_from_this_campaign(make_ctx):
     with pytest.raises(ToolError, match="critique must cite at least one run from this campaign"):
         tools.add_note(cri, "critique", "only an old campaign's run", status="challenge", run_ids=[old["run_id"]])
     assert tools.add_note(cri, "critique", "ok", status="challenge", run_ids=[old["run_id"], new["run_id"]])
+
+
+def test_clip_never_cuts_inside_a_number():
+    from researchagent.tools import _clip
+    metrics = {"error": {str(n): "1.5047345E-%d" % (80 + n) for n in range(400)}, "c_eff": {"8": "4.3"}}
+    out = _clip({"metrics": metrics, "notes": "n"}, 600)
+    assert out["_partial"] and out["omitted_entries"] > 0
+    kept = out["data"]["metrics"]["error"]
+    assert kept and all(v == "1.5047345E-%d" % (80 + int(k)) for k, v in kept.items())   # whole values only
+    assert len(json.dumps(out)) < 900
+    small = {"metrics": {"a": "1"}}
+    assert _clip(small, 600) is small
+
+
+def test_base_run_inherits_and_overrides_params(ctx):
+    r1 = submit(ctx, params={"x": "1", "N": [8, 16]})
+    r2 = tools.submit_experiment(ctx, "other precision", "h", base_run=r1["run_id"], params={"x": "2"},
+                                 precision_bits=512)
+    assert r2["params"] == {"x": "2", "N": [8, 16]} and r2["numerics"]["precision_bits"] == 512
+
+
+def test_failed_runs_are_refunded_but_capped(ctx):
+    from researchagent.config import set_current_campaign
+    set_current_campaign(ctx.paths.ledger, "C-fail", 3)              # researcher share 2
+    for _ in range(3):
+        assert submit(ctx, script="FAILME\n")["status"] == "failed"
+    with pytest.raises(ToolError, match="failed in this campaign"):
+        submit(ctx, script="FAILME\n")
+    with pytest.raises(ToolError, match="stop retrying"):
+        submit(ctx)

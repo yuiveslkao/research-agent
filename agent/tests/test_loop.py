@@ -57,6 +57,8 @@ def test_campaign_runs_until_critic_accepts(root, tmp_path):
     assert res.stopped_by == "accepted" and res.rounds_run == 2 and not res.errors
     text = res.report_path.read_text()
     assert "Does the error decay?" in text and "scope too broad" in text and "reproduced" in text
+    assert "## Outcome" in text and text.index("## Outcome") < text.index("## Notes")
+    assert "**Last critic verdict** [accept]" in text
     assert text.count("| experiment |") == 4 and "researcher round 2 ok" in text
     meta = json.loads((res.report_path.parent / "campaign.json").read_text())
     assert meta["max_runs"] == 20

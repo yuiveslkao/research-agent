@@ -101,4 +101,5 @@ Verified in the development sandbox (23 agent tests, 19 harness tests, all with 
 - **Julia packages:** only SpecialFunctions plus the standard library for now; the run sandbox has no network, so a missing package shows up as `Package X not found`. Add packages on the host and commit `Manifest.toml`, e.g.
   `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
 - **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.
+- **Budget:** failed runs are refunded from the run budget but each role may fail at most 3 runs per campaign; the critic keeps 40% of the budget in reserve.
 - **Not built:** `--resume` for interrupted campaigns, literature tool, claim/grade ledger, brief generator.

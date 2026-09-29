@@ -11,7 +11,7 @@ SCRIPT_CONTRACT = """\
 Julia experiment contract. The script runs in an isolated container (no network, capped CPU/RAM) at
 `workspace/agent/experiments/<id>.jl`. To rerun a previous script with different `params`/precision, or with
 small changes, pass `base_run=<run_id>` (and optionally `edits=[{"old": "...", "new": "..."}]`, each `old` must
-occur exactly once) instead of resending the source. Prefer ONE run that sweeps many parameters into a table
+occur exactly once) instead of resending the source; `params` are merged over the base run's params. Prefer ONE run that sweeps many parameters into a table
 over many small runs. Start a new script with:
 
     include(joinpath(@__DIR__, "..", "..", "library", "Prelude.jl")); using .Prelude

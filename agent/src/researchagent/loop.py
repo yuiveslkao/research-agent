@@ -109,7 +109,13 @@ class CampaignResult:
 
 def render_report(cid: str, question: str, stopped_by: str, notes: list[dict], runs: list[dict],
                   transcript: list[tuple[int, str, str]]) -> str:
+    dec = next((n for n in reversed(notes) if n["kind"] == "decision"), None)
+    crit = next((n for n in reversed(notes) if n["kind"] == "critique"), None)
     L = [f"# Campaign {cid}", "", f"**Question:** {question}", "", f"**Stopped by:** {stopped_by}", "",
+         "## Outcome", "",
+         f"**Last researcher decision** [{dec['status'] if dec else 'none'}]:", "", dec["text"] if dec else "(none)", "",
+         f"**Last critic verdict** [{crit['status'] if crit else 'none'}] (the accepted claim is the one the critic restates):",
+         "", crit["text"] if crit else "(none)", "",
          "## Notes (chronological)", ""]
     for n in notes:
         st = f" [{n['status']}]" if n["status"] else ""

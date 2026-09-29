@@ -63,11 +63,43 @@ def shorten_numbers(obj, digits: int = SHOW_DIGITS):
     return obj
 
 
+def _fit(obj, n: int):
+    """Shrink obj to about n JSON characters by dropping whole entries; never cuts inside a number or key."""
+    if len(json.dumps(obj, ensure_ascii=False)) <= n:
+        return obj, 0
+    if isinstance(obj, dict):
+        out, omitted, used = {}, 0, 2
+        for k, v in obj.items():
+            whole = len(json.dumps({k: v}, ensure_ascii=False))
+            if used + whole <= n:
+                out[k], used = v, used + whole
+            elif isinstance(v, (dict, list)) and n - used > 200:
+                sub, om = _fit(v, n - used - len(json.dumps(k)) - 10)
+                out[k], omitted, used = sub, omitted + om, n
+            else:
+                omitted, used = omitted + 1, n
+        return out, omitted
+    if isinstance(obj, list):
+        out, omitted, used = [], 0, 2
+        for v in obj:
+            whole = len(json.dumps(v, ensure_ascii=False)) + 2
+            if used + whole <= n:
+                out.append(v)
+                used += whole
+            else:
+                omitted, used = omitted + 1, n
+        return out, omitted
+    if isinstance(obj, str):
+        return obj[:n] + "...[cut]", 1
+    return obj, 0
+
+
 def _clip(obj, n: int):
-    s = json.dumps(obj, ensure_ascii=False)
-    if len(s) <= n:
+    shrunk, omitted = _fit(obj, n)
+    if not omitted:
         return obj
-    return {"_truncated": True, "total_chars": len(s), "preview": s[:n]}
+    return {"_partial": True, "omitted_entries": omitted, "data": shrunk,
+            "hint": "this view drops whole entries only; read_artifact(run_id, 'out/reported.json') has everything"}
 
 
 def _tail(path: Path, n: int) -> str:
@@ -104,17 +136,24 @@ def role_limit(role: str, max_runs: int) -> int:
     return max_runs if role == "critic" else max_runs - reserve
 
 
+MAX_FAILED_RUNS = 3   # per role and campaign; failed runs are refunded from the run budget but capped
+
+
 def _check_budget(ctx: Ctx) -> None:
     if ctx.settings.role == "human":
         return
-    c = ctx.campaign
+    c, role = ctx.campaign, ctx.settings.role
     recs = _audit_records(ctx.paths.ledger, c["id"])
-    total, mine = len(recs), sum(1 for r in recs if r["role"] == ctx.settings.role)
-    limit = role_limit(ctx.settings.role, c["max_runs"])
-    if total >= c["max_runs"] or (ctx.settings.role != "critic" and total >= limit):
-        raise ToolError(f"run budget exhausted for campaign {c['id']!r}: {total}/{c['max_runs']} runs used "
-                        f"({mine} by you; your share is {limit}, the rest is reserved for the critic). "
-                        "Do not start more runs; record your best conclusion.")
+    done = [r for r in recs if r.get("status", "completed") == "completed"]
+    failed = sum(1 for r in recs if r["role"] == role and r.get("status", "completed") != "completed")
+    if failed >= MAX_FAILED_RUNS:
+        raise ToolError(f"{failed} of your runs failed in this campaign; stop retrying. Report the blocker "
+                        "(missing package, bug you cannot fix) in your finding or critique.")
+    mine, limit = sum(1 for r in done if r["role"] == role), role_limit(role, c["max_runs"])
+    if len(done) >= c["max_runs"] or (role != "critic" and len(done) >= limit):
+        raise ToolError(f"run budget exhausted for campaign {c['id']!r}: {len(done)}/{c['max_runs']} completed runs "
+                        f"({mine} by you; your share is {limit}, the rest is reserved for the critic; failed runs "
+                        "are not counted). Do not start more runs; record your best conclusion.")
 
 
 def _require_role(ctx: Ctx, allowed: set[str]) -> None:
@@ -212,7 +251,8 @@ def _audit(ctx: Ctx, tool: str, run_id: str) -> None:
     d = ctx.paths.ledger
     d.mkdir(parents=True, exist_ok=True)
     rec = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "role": ctx.settings.role,
-           "campaign": ctx.campaign["id"], "tool": tool, "run_id": run_id}
+           "campaign": ctx.campaign["id"], "tool": tool, "run_id": run_id,
+           "status": load_result(ctx.paths, run_id)["status"]}
     with open(d / "audit.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
 
@@ -261,6 +301,7 @@ def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str = "", p
         if script.strip():
             raise ToolError("give either `script` or `base_run`, not both")
         script = apply_edits(_script_of(ctx, base_run), edits or [])
+        params = {**_load(ctx, base_run)[0].get("params", {}), **(params or {})}   # inherit, then override
     elif edits:
         raise ToolError("`edits` needs `base_run`")
     if not script.strip() or len(script) > MAX_SOURCE:

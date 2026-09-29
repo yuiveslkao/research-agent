@@ -111,3 +111,18 @@ def test_compare_profiles_redacts_env_and_shows_differences(root, tmp_path):
     text = "\n".join(f.msg for f in fs)
     assert "tools_extra" in text and ".no-bundled-skills" in text and "SECRET_KEY" in text
     assert "abc" not in text and "RESEARCH_ROLE" in text
+
+
+class HallucinatingAgent:
+    """Lists built-ins it does not have; the file probe shows it cannot use them."""
+    def ask(self, profile, prompt):
+        return "NO_TOOL" if "Create an empty file" in prompt else "terminal\nread_file\nmcp__research__read_notes"
+
+
+def test_probe_downgrades_self_reported_builtins(root, tmp_path):
+    home, _ = setup_profile(tmp_path, root, "researcher")
+    fs = check_profile("researcher", home, root, ask=True, probe=True, agent=HallucinatingAgent())
+    assert "fail" not in levels(fs)
+    assert any(f.level == "warn" and "downgraded" in f.msg for f in fs)
+    fs = check_profile("researcher", home, root, ask=True, agent=HallucinatingAgent())   # no probe: stays a failure
+    assert any(f.level == "fail" and "built-in tools exposed" in f.msg for f in fs)

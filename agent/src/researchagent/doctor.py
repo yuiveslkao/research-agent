@@ -172,6 +172,12 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
                 f.append(Finding("ok", f"probe: {role} could not create a file (reply: {reply[-120:]!r})"))
         except Exception as e:  # noqa: BLE001
             f.append(Finding("fail", f"probe turn for {role} failed: {e}"))
+        if any(x.level == "ok" and x.msg.startswith("probe:") for x in f):
+            # Ground truth beats self-report: a small model may list tools it does not have.
+            for x in f:
+                if x.level == "fail" and x.msg.startswith("built-in tools exposed"):
+                    x.level = "warn"
+                    x.msg += "\n     (downgraded: the file probe could not use them, so this is probably the model misreporting)"
     return f
 
 

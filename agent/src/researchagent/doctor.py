@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
+import json
 import os
 import secrets
 import subprocess
@@ -101,17 +102,29 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
     names = _env_names(pdir / ".env")
     f.append(Finding("info", f".env variable names: {sorted(names) or 'none'}"))
     if str(model.get("provider")).lower() == "anthropic":
-        for var in PROVIDER_KEYS["anthropic"]:
-            shape = _env_shape(pdir / ".env", var)
-            if shape is None:
+        shapes = {v: _env_shape(pdir / ".env", v) for v in PROVIDER_KEYS["anthropic"]}
+        key_ok = any(sh and sh[1] for sh in shapes.values())
+        login = _has_login(pdir)
+        for var, sh in shapes.items():
+            if sh and sh[1]:
+                f.append(Finding("ok", f"{var}: {sh[0]} characters, has the sk-ant- prefix and a plausible length"))
+        if login and not key_ok:
+            f.append(Finding("warn", "Anthropic access here is a Hermes LOGIN (auth.json), not an API key: calls draw on "
+                                     "that account's plan/allowance. If it is a Claude subscription login, Anthropic's "
+                                     "terms may not allow it outside Claude Code/Claude.ai; an API key from the Console "
+                                     "avoids that (`hermes -p " + role + " setup`)."))
+        for var, sh in shapes.items():
+            if sh is None or key_ok:
                 continue
-            n, ok = shape
-            f.append(Finding("ok" if ok else "fail",
-                             f"{var}: {n} characters, {'has' if ok else 'does NOT have'} the sk-ant- prefix and a plausible length"
-                             + ("" if ok else f" -> HTTP 401 expected. Re-enter it: `hermes -p {role} setup` "
-                                              "(never type a menu number into a key prompt)")))
+            n, ok = sh
+            if n == 0 and login:
+                continue                                    # empty placeholder; the login is used
+            f.append(Finding("fail" if n else "info" if login else "fail",
+                             f"{var}: {n} characters, does NOT look like an Anthropic key (sk-ant- prefix, plausible length)"
+                             + (f" -> HTTP 401 expected. Re-enter it: `hermes -p {role} setup` "
+                                "(never type a menu number into a key prompt)" if not login or n else "")))
     wanted = PROVIDER_KEYS.get(str(model.get("provider")).lower())
-    if wanted and not (set(wanted) & (names | set(os.environ))):
+    if wanted and not (set(wanted) & (names | set(os.environ))) and not _has_login(pdir):
         f.append(Finding("fail", f"provider {model.get('provider')!r} needs one of {wanted} in "
                                  f"{pdir / '.env'} (or the environment); none found. Run `hermes -p {role} setup`."))
 
@@ -263,6 +276,24 @@ def _env_shape(path: Path, name: str) -> tuple[int, bool] | None:
             v = v.strip().strip("'\"")
             return len(v), v.startswith("sk-ant-") and len(v) >= 40
     return None
+
+
+def _mentions_anthropic(obj) -> bool:
+    """True if a parsed auth.json mentions anthropic as a key or provider name (values are never shown)."""
+    if isinstance(obj, dict):
+        return any("anthropic" in str(k).lower() or _mentions_anthropic(v) for k, v in obj.items())
+    if isinstance(obj, list):
+        return any(_mentions_anthropic(v) for v in obj)
+    return isinstance(obj, str) and obj.strip().lower() == "anthropic"
+
+
+def _has_login(pdir: Path) -> bool:
+    """Hermes-managed login (e.g. `hermes auth add anthropic`) stored in the profile's auth.json."""
+    f = pdir / "auth.json"
+    try:
+        return f.exists() and _mentions_anthropic(json.loads(f.read_text()))
+    except (OSError, ValueError):
+        return False
 
 
 def _redacted_config(path: Path) -> list[str]:

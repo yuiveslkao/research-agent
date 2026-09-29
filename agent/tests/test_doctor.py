@@ -175,3 +175,21 @@ def test_malformed_anthropic_key_is_flagged_without_leaking_it(root, tmp_path, m
     fs = check_profile("researcher", home, root)
     assert any(f.level == "ok" and "ANTHROPIC_API_KEY" in f.msg for f in fs)
     assert "xxxx" not in "\n".join(f.msg for f in fs)
+
+
+def test_empty_env_keys_with_hermes_login_is_a_warning_not_a_failure(root, tmp_path, monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    home, cfgp = setup_profile(tmp_path, root)
+    cfg = yaml.safe_load(cfgp.read_text())
+    cfg["model"] = {"default": "claude-opus-5-5", "provider": "anthropic"}
+    cfgp.write_text(yaml.safe_dump(cfg))
+    pdir = home / "profiles" / "researcher"
+    (pdir / ".env").write_text("ANTHROPIC_API_KEY=\nANTHROPIC_TOKEN=\n")
+    fs = check_profile("researcher", home, root)
+    assert any(f.level == "fail" and "ANTHROPIC_API_KEY" in f.msg for f in fs)      # no credential at all
+    (pdir / "auth.json").write_text('{"providers": {"anthropic": {"access_token": "SECRET-DO-NOT-PRINT"}}}')
+    fs = check_profile("researcher", home, root)
+    assert not any(f.level == "fail" and "ANTHROPIC" in f.msg for f in fs)
+    warn = [f for f in fs if f.level == "warn" and "LOGIN" in f.msg]
+    assert warn and "SECRET" not in "\n".join(f.msg for f in fs)

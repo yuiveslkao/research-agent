@@ -98,6 +98,13 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
     f.append(Finding("info", f"model: {model.get('default')} (provider {model.get('provider')}); "
                              f"max_turns: {(cfg.get('agent') or {}).get('max_turns')}"))
 
+    names = _env_names(pdir / ".env")
+    f.append(Finding("info", f".env variable names: {sorted(names) or 'none'}"))
+    wanted = PROVIDER_KEYS.get(str(model.get("provider")).lower())
+    if wanted and not (set(wanted) & (names | set(os.environ))):
+        f.append(Finding("fail", f"provider {model.get('provider')!r} needs one of {wanted} in "
+                                 f"{pdir / '.env'} (or the environment); none found. Run `hermes -p {role} setup`."))
+
     soul = pdir / "SOUL.md"
     packaged = resources.files("researchagent").joinpath("profiles", f"{role}_SOUL.md").read_bytes()
     if not soul.exists():
@@ -150,6 +157,13 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
 
     if ask or probe:
         agent = agent or HermesCLI(timeout=240)
+        try:
+            agent.ask(role, "Reply with the single word OK and do not call any tool.")
+        except Exception as e:  # noqa: BLE001
+            f.append(Finding("fail", f"a basic Hermes turn for {role} fails, so --ask/--probe were skipped:\n{e}\n"
+                                     f"Run it by hand to see the full output: "
+                                     f"hermes -p {role} -z 'Reply OK'; echo exit=$?"))
+            return f
     if ask:
         try:
             out = agent.ask(role, "List the exact names of every tool you can call, one per line, and nothing else. "
@@ -210,6 +224,17 @@ def classify_tools(names: list[str]) -> list[Finding]:
     return f
 
 
+PROVIDER_KEYS = {"anthropic": ["ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"]}
+
+
+def _env_names(path: Path) -> set[str]:
+    """Variable NAMES defined in a dotenv file (never the values)."""
+    if not path.exists():
+        return set()
+    return {ln.split("=", 1)[0].replace("export ", "").strip() for ln in path.read_text().splitlines()
+            if "=" in ln and not ln.lstrip().startswith("#")}
+
+
 def _redacted_config(path: Path) -> list[str]:
     cfg = yaml.safe_load(path.read_text()) if path.exists() else {}
     for entry in ((cfg or {}).get("mcp_servers") or {}).values():
@@ -223,10 +248,7 @@ def compare_profiles(hermes_home: Path, a: str = "researcher", b: str = "critic"
     pa, pb = hermes_home / "profiles" / a, hermes_home / "profiles" / b
     diff = list(difflib.unified_diff(_redacted_config(pa / "config.yaml"), _redacted_config(pb / "config.yaml"),
                                      a, b, lineterm="", n=0))
-    def names(p: Path) -> set[str]:
-        return {ln.split("=", 1)[0].strip() for ln in p.read_text().splitlines()
-                if "=" in ln and not ln.lstrip().startswith("#")} if p.exists() else set()
-    envd = sorted(names(pa / ".env") ^ names(pb / ".env"))
+    envd = sorted(_env_names(pa / ".env") ^ _env_names(pb / ".env"))
     files = sorted({x.name for x in pa.iterdir()} ^ {x.name for x in pb.iterdir()}) if pa.exists() and pb.exists() else []
     return [Finding("info", "config.yaml diff:\n" + ("\n".join(diff) or "(identical apart from redactions)")),
             Finding("info", f".env variable names that differ: {envd or 'none'}"),

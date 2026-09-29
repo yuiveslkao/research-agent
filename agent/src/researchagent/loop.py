@@ -59,7 +59,8 @@ class HermesCLI:
                 if self.on_wait:
                     self.on_wait(elapsed)
         if p.returncode != 0:
-            raise RuntimeError(f"hermes exited {p.returncode}: {err.strip()[-800:]}")
+            raise RuntimeError(f"hermes exited {p.returncode}\n  stderr: {err.strip()[-800:] or '(empty)'}"
+                               f"\n  stdout: {out.strip()[-800:] or '(empty)'}")
         return out.strip()
 
 

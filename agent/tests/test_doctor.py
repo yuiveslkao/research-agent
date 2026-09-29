@@ -126,3 +126,34 @@ def test_probe_downgrades_self_reported_builtins(root, tmp_path):
     assert any(f.level == "warn" and "downgraded" in f.msg for f in fs)
     fs = check_profile("researcher", home, root, ask=True, agent=HallucinatingAgent())   # no probe: stays a failure
     assert any(f.level == "fail" and "built-in tools exposed" in f.msg for f in fs)
+
+
+class DeadAgent:
+    calls = 0
+    def ask(self, profile, prompt):
+        DeadAgent.calls += 1
+        raise RuntimeError("hermes exited 2\n  stderr: (empty)\n  stdout: no API key")
+
+
+def test_basic_turn_failure_short_circuits_ask_and_probe(root, tmp_path):
+    home, _ = setup_profile(tmp_path, root)
+    DeadAgent.calls = 0
+    fs = check_profile("researcher", home, root, ask=True, probe=True, agent=DeadAgent())
+    fails = [f for f in fs if f.level == "fail"]
+    assert len(fails) == 1 and "basic Hermes turn" in fails[0].msg and "no API key" in fails[0].msg
+    assert DeadAgent.calls == 1
+
+
+def test_missing_provider_credentials_are_flagged(root, tmp_path, monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    home, cfgp = setup_profile(tmp_path, root)
+    cfg = yaml.safe_load(cfgp.read_text())
+    cfg["model"] = {"default": "claude-opus-5-5", "provider": "anthropic"}
+    cfgp.write_text(yaml.safe_dump(cfg))
+    fs = check_profile("researcher", home, root)
+    assert any(f.level == "fail" and "ANTHROPIC_API_KEY" in f.msg for f in fs)
+    (home / "profiles" / "researcher" / ".env").write_text("ANTHROPIC_API_KEY=sk-secret\n")
+    fs = check_profile("researcher", home, root)
+    assert not any(f.level == "fail" and "needs one of" in f.msg for f in fs)
+    assert "sk-secret" not in "\n".join(f.msg for f in fs)

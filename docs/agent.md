@@ -55,7 +55,14 @@ Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-t
    tools it can call. Send its output when something fails. The model's own tool list is only self-report (a small model may misreport), so `--probe` gives ground truth: it asks each profile to create a temp file with any built-in tool and checks whether the file exists. `--compare` shows how the two profiles differ (env values redacted). Smoke test by hand: `hermes -p researcher -z "Call list_runs and read_notes and print what they return."`
 6. Campaign: `research-loop --question-file agent/questions/de_rate.md --rounds 3 --max-runs 20`
    (env `RESEARCH_HERMES_CMD` overrides the Hermes command; JSON list with `{profile}` and `{prompt}`).
-7. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `audit.jsonl`). Keep one with `git add -f`.
+7. **How long is too long?** `research-loop` prints a line when each turn starts/finishes and a heartbeat every 60 s
+   (turn time, notes, runs, seconds since the ledger last changed) and warns after 10 minutes without ledger activity.
+   Typical: a Hermes turn takes 2-10 min (many LLM calls plus 5-60 s per experiment); a 2-round campaign 10-40 min.
+   Suspect a hang at 10+ min with no new note/run; look at `docker ps` (a container `rh-R-...` is an experiment),
+   `tail -f ~/.hermes/profiles/<role>/logs/agent.log`, and `ls -t ledger/notes ledger/runs | head`.
+   Hard limits: experiment walltime (default 600 s, max 1800), Hermes turn `--turn-timeout` (default 1800 s, then killed),
+   `agent.max_turns`. Ctrl-C is safe: notes and runs stay in the ledger.
+8. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `audit.jsonl`). Keep one with `git add -f`.
 
 ## What is verified and what is not
 

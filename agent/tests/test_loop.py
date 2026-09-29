@@ -84,17 +84,54 @@ def test_agent_failure_is_recorded_not_raised(root):
     assert res.stopped_by.startswith("error:") and res.errors and res.report_path.exists()
 
 
-def test_hermes_cli_command_template(monkeypatch):
+class FakePopen:
     calls = []
+    slow = 0
 
-    class R:
-        returncode, stdout, stderr = 0, " answer \n", ""
-    monkeypatch.setattr("subprocess.run", lambda argv, **kw: calls.append(argv) or R())
+    def __init__(self, argv, **kw):
+        FakePopen.calls.append(argv)
+        self.returncode, self._n = 0, 0
+
+    def communicate(self, timeout=None):
+        import subprocess
+        self._n += 1
+        if timeout is not None and self._n <= FakePopen.slow:
+            raise subprocess.TimeoutExpired("hermes", timeout)
+        return " answer \n", ""
+
+    def kill(self):
+        pass
+
+
+def test_hermes_cli_command_template(monkeypatch):
+    FakePopen.calls, FakePopen.slow = [], 0
+    monkeypatch.setattr("subprocess.Popen", FakePopen)
     out = HermesCLI().ask("critic", "hello world")
-    assert out == "answer" and calls[0] == ["hermes", "-p", "critic", "-z", "hello world"]
+    assert out == "answer" and FakePopen.calls[0] == ["hermes", "-p", "critic", "-z", "hello world"]
     monkeypatch.setenv("RESEARCH_HERMES_CMD", json.dumps(["h", "--profile", "{profile}", "-q", "{prompt}"]))
     HermesCLI().ask("researcher", "p")
-    assert calls[1] == ["h", "--profile", "researcher", "-q", "p"]
+    assert FakePopen.calls[1] == ["h", "--profile", "researcher", "-q", "p"]
+
+
+def test_hermes_cli_heartbeat_and_timeout(monkeypatch):
+    FakePopen.calls, FakePopen.slow = [], 2
+    monkeypatch.setattr("subprocess.Popen", FakePopen)
+    beats = []
+    h = HermesCLI(heartbeat_s=0.01, timeout=100)
+    h.on_wait = beats.append
+    assert h.ask("critic", "p") == "answer" and len(beats) == 2
+    FakePopen.slow = 10**6
+    import pytest
+    with pytest.raises(RuntimeError, match="exceeded 0 s"):
+        HermesCLI(heartbeat_s=0.01, timeout=0).ask("critic", "p")
+
+
+def test_campaign_reports_progress(root, tmp_path):
+    lines = []
+    agent = ScriptedAgent(root, str(tmp_path / "fakejulia"))
+    run_campaign("q", rounds=1, root=root, agent=agent, progress=lines.append)
+    assert any("round 1/1 researcher: turn started" in l for l in lines)
+    assert any("critic: turn finished" in l for l in lines)
 
 
 def test_accept_without_independent_attack_is_ignored(root, tmp_path):

@@ -11,6 +11,7 @@ import os
 import secrets
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,19 +29,50 @@ class Agent(Protocol):
 
 
 class HermesCLI:
-    """Runs one Hermes turn as a subprocess. Override the command with RESEARCH_HERMES_CMD (JSON list)."""
+    """Runs one Hermes turn as a subprocess. Override the command with RESEARCH_HERMES_CMD (JSON list).
 
-    def __init__(self, cmd: list[str] | None = None, timeout: int = 3600):
+    `on_wait(elapsed_s)` is called every `heartbeat_s` seconds while the turn is running.
+    """
+
+    def __init__(self, cmd: list[str] | None = None, timeout: int = 3600, heartbeat_s: float = 60.0):
         env = os.environ.get("RESEARCH_HERMES_CMD")
         self.cmd = cmd or (json.loads(env) if env else DEFAULT_HERMES_CMD)
         self.timeout = timeout
+        self.heartbeat_s = heartbeat_s
+        self.on_wait = None
 
     def ask(self, profile: str, prompt: str) -> str:
         argv = [c.replace("{profile}", profile).replace("{prompt}", prompt) for c in self.cmd]
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=self.timeout)
-        if r.returncode != 0:
-            raise RuntimeError(f"hermes exited {r.returncode}: {r.stderr.strip()[-800:]}")
-        return r.stdout.strip()
+        t0 = time.monotonic()
+        p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             stdin=subprocess.DEVNULL)
+        while True:
+            try:
+                out, err = p.communicate(timeout=self.heartbeat_s)
+                break
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - t0
+                if elapsed > self.timeout:
+                    p.kill()
+                    p.communicate()
+                    raise RuntimeError(f"hermes turn for {profile} exceeded {self.timeout} s and was killed")
+                if self.on_wait:
+                    self.on_wait(elapsed)
+        if p.returncode != 0:
+            raise RuntimeError(f"hermes exited {p.returncode}: {err.strip()[-800:]}")
+        return out.strip()
+
+
+def activity(ledger: Path, cid: str) -> dict:
+    """Progress signal for the driver: counts and seconds since the ledger last changed."""
+    files = list((ledger / "notes").glob("N-*.json")) + list((ledger / "runs").glob("R-*/result.json"))
+    audit = ledger / "audit.jsonl"
+    if audit.exists():
+        files.append(audit)
+    last = max((f.stat().st_mtime for f in files), default=None)
+    return {"notes": len(notes_mod.read_notes(ledger, cid, limit=10_000)),
+            "runs_started": sum(1 for _ in (ledger / "runs").glob("R-*/result.json")),
+            "idle_s": None if last is None else max(0.0, time.time() - last)}
 
 
 def researcher_prompt(question: str, rnd: int, rounds: int) -> str:
@@ -91,7 +123,8 @@ def render_report(cid: str, question: str, stopped_by: str, notes: list[dict], r
 
 
 def run_campaign(question: str, rounds: int, root: Path, agent: Agent, max_runs: int = 30,
-                 campaign_id: str | None = None) -> CampaignResult:
+                 campaign_id: str | None = None, progress=None) -> CampaignResult:
+    progress = progress or (lambda msg: None)
     root = Path(root).resolve()
     cid = campaign_id or "C-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(2)
     ctx = Ctx(Settings(root=root, role="driver", executor="local"))   # driver never runs jobs
@@ -106,14 +139,33 @@ def run_campaign(question: str, rounds: int, root: Path, agent: Agent, max_runs:
     def critic_runs() -> int:
         return tools.attack_count(ledger, cid, "critic")
 
+    def turn(rnd: int, who: str, prompt: str) -> str:
+        t0 = time.monotonic()
+        progress(f"round {rnd}/{rounds} {who}: turn started")
+
+        def waiting(elapsed: float) -> None:
+            a = activity(ledger, cid)
+            idle = a["idle_s"]
+            idle_s = "no ledger activity yet" if idle is None else f"last ledger change {idle:.0f}s ago"
+            warn = ""
+            if idle is not None and idle > 600 or (idle is None and elapsed > 600):
+                warn = "  <-- no progress for 10+ min; check `docker ps` and ~/.hermes/profiles/%s/logs/agent.log" % who
+            progress(f"  {who} still running {elapsed/60:.1f} min | notes {a['notes']}, runs {a['runs_started']} | {idle_s}{warn}")
+
+        if hasattr(agent, "on_wait"):
+            agent.on_wait = waiting
+        out = agent.ask(who, prompt)
+        progress(f"round {rnd}/{rounds} {who}: turn finished in {(time.monotonic() - t0)/60:.1f} min")
+        return out
+
     transcript: list[tuple[int, str, str]] = []
     errors: list[str] = []
     stopped_by, rnd = "max_rounds", 0
     try:
         for rnd in range(1, rounds + 1):
-            transcript.append((rnd, "researcher", agent.ask("researcher", researcher_prompt(question, rnd, rounds))))
+            transcript.append((rnd, "researcher", turn(rnd, "researcher", researcher_prompt(question, rnd, rounds))))
             before = critic_runs()
-            transcript.append((rnd, "critic", agent.ask("critic", critic_prompt(question, rnd, rounds))))
+            transcript.append((rnd, "critic", turn(rnd, "critic", critic_prompt(question, rnd, rounds))))
             attacked = critic_runs() > before
             if campaign_state(notes_mod.read_notes(ledger, cid))["accepted"]:
                 if attacked:
@@ -139,10 +191,14 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--question-file")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--max-runs", type=int, default=30)
-    ap.add_argument("--turn-timeout", type=int, default=3600)
+    ap.add_argument("--turn-timeout", type=int, default=1800, help="kill a Hermes turn after this many seconds")
+    ap.add_argument("--heartbeat", type=float, default=60.0, help="seconds between progress lines")
     a = ap.parse_args(argv)
     q = a.question or Path(a.question_file).read_text().strip()
-    res = run_campaign(q, a.rounds, Path(a.root), HermesCLI(timeout=a.turn_timeout), a.max_runs)
+    def progress(msg: str) -> None:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+    res = run_campaign(q, a.rounds, Path(a.root), HermesCLI(timeout=a.turn_timeout, heartbeat_s=a.heartbeat),
+                       a.max_runs, progress=progress)
     print(f"campaign {res.campaign_id}: {res.stopped_by} after {res.rounds_run} round(s)\nreport: {res.report_path}")
     return 0 if not res.errors else 1
 

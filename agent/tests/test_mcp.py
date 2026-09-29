@@ -52,15 +52,15 @@ def test_full_tool_round_trip(root, tmp_path):
         insp = _payload(await s.call_tool("inspect_run", {"run_id": sub["run_id"]}))
         art = _payload(await s.call_tool("read_artifact", {"run_id": sub["run_id"], "path": "out/data.csv"}))
         rr = _payload(await s.call_tool("rerun_run", {"run_id": sub["run_id"]}))
-        bad = await s.call_tool("inspect_run", {"run_id": "../../x"})
+        bad = _payload(await s.call_tool("inspect_run", {"run_id": "../../x"}))
         note = _payload(await s.call_tool("add_note", {"kind": "hypothesis", "text": "H",
                                                        "run_ids": [sub["run_id"]]}))
-        crit = await s.call_tool("add_note", {"kind": "critique", "text": "x", "status": "accept"})
+        crit = _payload(await s.call_tool("add_note", {"kind": "critique", "text": "x", "status": "accept"}))
         return sub, insp, art, rr, bad, note, crit
     sub, insp, art, rr, bad, note, crit = _drive(root, tmp_path, "researcher", fn)
     assert sub["status"] == "completed" and insp["reported"]["metrics"]["x"] == "2.5"
     assert art["text"].startswith("N,err")
     assert rr["outcome"] == "pass"
-    assert bad.isError and "invalid run id" in bad.content[0].text
+    assert bad["ok"] is False and "invalid run id" in bad["error"]      # errors are data, not protocol errors
     assert note["kind"] == "hypothesis"
-    assert crit.isError and "may not write" in crit.content[0].text
+    assert crit["ok"] is False and "may not write" in crit["error"]

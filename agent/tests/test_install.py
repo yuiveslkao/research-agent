@@ -16,6 +16,7 @@ def test_install_merges_without_clobbering(tmp_path):
     assert cfg["model"]["default"] == "some/model" and "other" in cfg["mcp_servers"]
     r = cfg["mcp_servers"]["research"]
     assert r["env"]["RESEARCH_ROLE"] == "critic" and r["timeout"] == TOOL_TIMEOUT_S > 1800
+    assert r["tools"]["prompts"] is False and r["tools"]["resources"] is False      # no unused utility tools
     assert r["tools"]["include"] == COMMON_TOOLS and r["args"] == ["-m", "researchagent.mcp_server"]
     assert set(cfg["agent"]["disabled_toolsets"]) == {"browser", "brand_new_toolset", *DISABLED_TOOLSETS}
     assert {"file", "terminal", "code_execution", "skills", "vision"} <= set(cfg["agent"]["disabled_toolsets"])

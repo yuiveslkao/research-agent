@@ -78,15 +78,51 @@ def test_precision_and_resource_caps(ctx):
         submit(ctx, mem_gb=64)
 
 
-def test_budget(ctx, root):
+def test_budget_reserves_share_for_critic(make_ctx):
     from researchagent.config import set_current_campaign
-    set_current_campaign(ctx.paths.ledger, "C-test", 2)
-    submit(ctx)
-    submit(ctx)
+    res, cri = make_ctx("researcher"), make_ctx("critic")
+    set_current_campaign(res.paths.ledger, "C-test", 5)         # researcher share 3, critic keeps 2
+    for _ in range(3):
+        submit(res)
+    with pytest.raises(ToolError, match="reserved for the critic"):
+        submit(res)
+    first = tools.list_runs(res)[0]["run_id"]
     with pytest.raises(ToolError, match="budget exhausted"):
-        submit(ctx)
+        tools.rerun_run(res, first)
+    submit(cri)                                                  # the critic can still attack
+    tools.rerun_run(cri, first)
     with pytest.raises(ToolError, match="budget exhausted"):
-        tools.rerun_run(ctx, tools.list_runs(ctx)[0]["run_id"])
+        submit(cri)                                              # nobody exceeds the total
+
+
+def test_number_shortening_and_full_precision(ctx):
+    from researchagent.tools import shorten_numbers, shorten_text
+    long = "5.32441334924897634852236681850808222185416142616629524874326809157081409251244900028693567026201991e-86"
+    assert shorten_text(long) == "5.3244133492489763485E-86"
+    assert shorten_text("run R-20260929T104703-46a827 n=128 h=0.0455692149760261") == \
+        "run R-20260929T104703-46a827 n=128 h=0.0455692149760261"          # short numbers and ids untouched
+    assert shorten_numbers({"e": [long], "n": 3}) == {"e": ["5.3244133492489763485E-86"], "n": 3}
+    r = submit(ctx, params={"x": long})
+    assert r["reported"]["metrics"]["x"] == "5.3244133492489763485E-86" and "numbers_shortened" in r
+    full = tools.read_artifact(ctx, r["run_id"], "out/reported.json", full_precision=True)
+    assert long in full["text"] and "digits" not in full
+    short = tools.read_artifact(ctx, r["run_id"], "out/reported.json")
+    assert long not in short["text"] and "5.3244133492489763485E-86" in short["text"]
+
+
+def test_base_run_reuses_script_with_edits(ctx):
+    r1 = submit(ctx, script="alpha = 1\nbeta = 2\n", params={"x": "1"})
+    r2 = tools.submit_experiment(ctx, "same script, other params", "h", base_run=r1["run_id"], params={"x": "2"})
+    assert r2["reported"]["metrics"]["x"] == "2"
+    assert tools.read_artifact(ctx, r2["run_id"], "script")["text"] == "alpha = 1\nbeta = 2\n"
+    r3 = tools.submit_experiment(ctx, "edited", "h", base_run=r1["run_id"], edits=[{"old": "beta = 2", "new": "beta = 3"}])
+    assert tools.read_artifact(ctx, r3["run_id"], "script")["text"] == "alpha = 1\nbeta = 3\n"
+    with pytest.raises(ToolError, match="exactly once"):
+        tools.submit_experiment(ctx, "bad", "h", base_run=r1["run_id"], edits=[{"old": "gamma", "new": "x"}])
+    with pytest.raises(ToolError, match="not both"):
+        tools.submit_experiment(ctx, "bad", "h", script="x", base_run=r1["run_id"])
+    with pytest.raises(ToolError, match="needs `base_run`"):
+        tools.submit_experiment(ctx, "bad", "h", script="x", edits=[{"old": "a", "new": "b"}])
 
 
 def test_list_runs_filters_by_campaign(ctx):

@@ -137,7 +137,11 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
         f.append(Finding("fail", f"MCP command not executable: {entry.get('command')}"))
     if (entry.get("timeout") or 0) < 1900:
         f.append(Finding("warn", f"MCP tool timeout is {entry.get('timeout')} s; submit_* can block up to 1800 s"))
-    include = ((entry.get("tools") or {}).get("include")) or []
+    tcfg = entry.get("tools") or {}
+    if tcfg.get("prompts") is not False or tcfg.get("resources") is not False:
+        f.append(Finding("warn", "tools.prompts/tools.resources are not false: Hermes adds 4 unused utility tools "
+                                 "(list/get prompts, list/read resources) to every request (re-run the installer)"))
+    include = tcfg.get("include") or []
     if sorted(include) != sorted(COMMON_TOOLS):
         f.append(Finding("warn", f"tools.include differs from the expected list: {sorted(set(COMMON_TOOLS) ^ set(include))}"))
 

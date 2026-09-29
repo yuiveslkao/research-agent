@@ -8,9 +8,11 @@ the library, or anything else.
 from __future__ import annotations
 
 import json
+import math
 import re
 import secrets
 import tomllib
+from decimal import Decimal, localcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +32,35 @@ MAX_SOURCE = 60_000
 
 class ToolError(ValueError):
     """Bad request from the agent; the message is shown to it."""
+
+
+_NUM = re.compile(r"(?<![\w.])[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?![\w])")
+SHOW_DIGITS = 20
+
+
+def _shorten_token(m: re.Match, digits: int = SHOW_DIGITS) -> str:
+    tok = m.group(0)
+    mant = re.split(r"[eE]", tok)[0]
+    if len(re.sub(r"\D", "", mant).lstrip("0")) <= digits + 5:
+        return tok
+    with localcontext() as ctx:
+        ctx.prec = max(len(tok), 50)
+        return f"{Decimal(tok):.{digits - 1}E}"
+
+
+def shorten_text(text: str, digits: int = SHOW_DIGITS) -> str:
+    """Round every numeric token with many more than `digits` significant digits (agent-facing views only)."""
+    return _NUM.sub(lambda m: _shorten_token(m, digits), text)
+
+
+def shorten_numbers(obj, digits: int = SHOW_DIGITS):
+    if isinstance(obj, str):
+        return shorten_text(obj, digits)
+    if isinstance(obj, dict):
+        return {k: shorten_numbers(v, digits) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [shorten_numbers(v, digits) for v in obj]
+    return obj
 
 
 def _clip(obj, n: int):
@@ -59,21 +90,31 @@ def _load(ctx: Ctx, run_id: str) -> tuple[dict, dict]:
     return spec, load_result(ctx.paths, run_id)
 
 
-def _campaign_runs(ctx: Ctx, campaign_id: str) -> int:
-    n = 0
-    for p in (ctx.paths.ledger / "runs").glob("R-*/spec.toml"):
-        meta = tomllib.loads(p.read_text()).get("meta", {})
-        if meta.get("campaign") == campaign_id:
-            n += 1
-    return n
+def _audit_records(ledger: Path, campaign: str) -> list[dict]:
+    f = ledger / "audit.jsonl"
+    if not f.exists():
+        return []
+    recs = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
+    return [r for r in recs if r["campaign"] == campaign]
+
+
+def role_limit(role: str, max_runs: int) -> int:
+    """The critic keeps ~40% of the campaign budget in reserve; the researcher cannot spend it."""
+    reserve = math.ceil(0.4 * max_runs) if max_runs >= 2 else 0
+    return max_runs if role == "critic" else max_runs - reserve
 
 
 def _check_budget(ctx: Ctx) -> None:
+    if ctx.settings.role == "human":
+        return
     c = ctx.campaign
-    used = _campaign_runs(ctx, c["id"])
-    if used >= c["max_runs"]:
-        raise ToolError(f"run budget exhausted for campaign {c['id']!r} ({used}/{c['max_runs']}); "
-                        "record your best conclusion instead of starting more runs")
+    recs = _audit_records(ctx.paths.ledger, c["id"])
+    total, mine = len(recs), sum(1 for r in recs if r["role"] == ctx.settings.role)
+    limit = role_limit(ctx.settings.role, c["max_runs"])
+    if total >= c["max_runs"] or (ctx.settings.role != "critic" and total >= limit):
+        raise ToolError(f"run budget exhausted for campaign {c['id']!r}: {total}/{c['max_runs']} runs used "
+                        f"({mine} by you; your share is {limit}, the rest is reserved for the critic). "
+                        "Do not start more runs; record your best conclusion.")
 
 
 def _require_role(ctx: Ctx, allowed: set[str]) -> None:
@@ -93,8 +134,11 @@ def run_summary(ctx: Ctx, run_id: str) -> dict:
         "numerics": {k: spec["numerics"].get(k) for k in ("arithmetic", "precision_bits", "determinism")},
         "wall_s": h["wall_s"], "exit_code": h["exit_code"], "code_commit": h["code_commit"][:12],
         "outputs": [{"path": o["path"], "bytes": o["bytes"]} for o in h["outputs"]],
-        "reported": _clip(res["reported"], 3000),
+        "reported": _clip(shorten_numbers(res["reported"]), 2000),
     }
+    if json.dumps(shorten_numbers(res["reported"])) != json.dumps(res["reported"]):
+        out["numbers_shortened"] = (f"reals shown to {SHOW_DIGITS} significant digits to save tokens; full digits: "
+                                    "read_artifact(run_id, 'out/reported.json', full_precision=true)")
     err = get_path(ctx.paths.store, h["stderr"])
     if err.exists() and err.stat().st_size:
         out["stderr_tail"] = _tail(err, 1500)
@@ -155,11 +199,7 @@ def _audit(ctx: Ctx, tool: str, run_id: str) -> None:
 
 def attack_count(ledger: Path, campaign: str, role: str) -> int:
     """Runs/checks/reruns a role started in a campaign (used by the driver to police the critic)."""
-    f = ledger / "audit.jsonl"
-    if not f.exists():
-        return 0
-    recs = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
-    return sum(1 for r in recs if r["campaign"] == campaign and r["role"] == role)
+    return sum(1 for r in _audit_records(ledger, campaign) if r["role"] == role)
 
 
 def _new_tag(prefix: str) -> str:
@@ -168,13 +208,40 @@ def _new_tag(prefix: str) -> str:
 
 # ---------------------------------------------------------------- experiments and checks
 
-def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str, params: dict | None = None,
+def _script_of(ctx: Ctx, run_id: str) -> str:
+    spec, res = _load(ctx, run_id)
+    rel = spec.get("meta", {}).get("script")
+    if not rel or spec["kind"] != "experiment":
+        raise ToolError(f"{run_id} has no experiment script to reuse")
+    return ctx.lab.show(res["harness"]["code_commit"], rel)
+
+
+def apply_edits(script: str, edits: list[dict]) -> str:
+    for i, e in enumerate(edits):
+        old, new = e.get("old"), e.get("new")
+        if not isinstance(old, str) or not isinstance(new, str) or not old:
+            raise ToolError(f"edit {i}: needs non-empty string 'old' and string 'new'")
+        n = script.count(old)
+        if n != 1:
+            raise ToolError(f"edit {i}: 'old' must occur exactly once in the base script (found {n})")
+        script = script.replace(old, new)
+    return script
+
+
+def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str = "", params: dict | None = None,
                       precision_bits: int = 256, walltime_s: int = 600, threads: int = 1,
                       mem_gb: float = 4, seed: int = 1, determinism: str = "bitwise",
-                      rel_tol: float | None = None) -> dict:
+                      rel_tol: float | None = None, base_run: str | None = None,
+                      edits: list[dict] | None = None) -> dict:
     _require_role(ctx, {"researcher", "critic", "human"})
     if not title.strip() or len(title) > 100:
         raise ToolError("title must be 1..100 characters")
+    if base_run:
+        if script.strip():
+            raise ToolError("give either `script` or `base_run`, not both")
+        script = apply_edits(_script_of(ctx, base_run), edits or [])
+    elif edits:
+        raise ToolError("`edits` needs `base_run`")
     if not script.strip() or len(script) > MAX_SOURCE:
         raise ToolError(f"script must be 1..{MAX_SOURCE} characters")
     _check_budget(ctx)
@@ -230,7 +297,8 @@ def inspect_run(ctx: Ctx, run_id: str) -> dict:
     return run_summary(ctx, run_id)
 
 
-def read_artifact(ctx: Ctx, run_id: str, path: str, max_bytes: int = 20000, tail: bool = False) -> dict:
+def read_artifact(ctx: Ctx, run_id: str, path: str, max_bytes: int = 8000, tail: bool = False,
+                  full_precision: bool = False) -> dict:
     """path: an output path from inspect_run, or 'stdout', 'stderr', 'script'."""
     spec, res = _load(ctx, run_id)
     max_bytes = max(1, min(int(max_bytes), 100_000))
@@ -247,10 +315,14 @@ def read_artifact(ctx: Ctx, run_id: str, path: str, max_bytes: int = 20000, tail
         if not match:
             raise ToolError(f"no such output {path!r}; available: {[o['path'] for o in h['outputs']]}")
         text = get_path(ctx.paths.store, "sha256:" + match[0]["sha256"]).read_text(errors="replace")
+    if not full_precision and path not in ("script", "stdout", "stderr"):
+        text = shorten_text(text)
     total = len(text)
     text = text[-max_bytes:] if tail else text[:max_bytes]
-    return {"run_id": run_id, "path": path, "total_chars": total, "truncated": total > max_bytes,
-            "text": text}
+    out = {"run_id": run_id, "path": path, "total_chars": total, "truncated": total > max_bytes, "text": text}
+    if not full_precision and path not in ("script", "stdout", "stderr"):
+        out["digits"] = f"reals rounded to {SHOW_DIGITS} significant digits; pass full_precision=true for all digits"
+    return out
 
 
 def list_runs(ctx: Ctx, limit: int = 20, campaign_only: bool = True) -> list[dict]:

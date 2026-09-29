@@ -38,7 +38,7 @@ def mcp_entry(role: str, root: Path, executor: str) -> dict:
            "PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
     return {"command": sys.executable, "args": ["-m", "researchagent.mcp_server"], "env": env,
             "timeout": TOOL_TIMEOUT_S, "connect_timeout": 30,
-            "tools": {"include": list(COMMON_TOOLS)}}
+            "tools": {"include": list(COMMON_TOOLS), "prompts": False, "resources": False}}
 
 
 def merge_config(cfg: dict, role: str, root: Path, executor: str, max_turns: int) -> dict:

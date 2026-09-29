@@ -221,6 +221,14 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
                 if x.level == "fail" and x.msg.startswith("built-in tools exposed"):
                     x.level = "warn"
                     x.msg += "\n     (downgraded: the file probe could not use them, so this is probably the model misreporting)"
+    turn_ok = (ask or probe) and not any(x.level == "fail" and x.msg.startswith(("hermes turn", "probe turn")) for x in f) \
+        and any(x.msg.startswith(("tool list reported", "probe:")) for x in f)
+    if turn_ok:
+        # A real model turn completed, so whatever credential Hermes uses works; empty .env placeholders are harmless.
+        for x in f:
+            if x.level == "fail" and any(x.msg.startswith(v + ":") for v in PROVIDER_KEYS.get(str(model.get("provider")).lower(), ())):
+                x.level = "info"
+                x.msg += "\n     (downgraded: a live model turn succeeded, so another credential source is in use)"
     return f
 
 

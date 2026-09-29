@@ -108,6 +108,13 @@ def derive_evidence(ledger: Path, run_ids: list[str], author_role: str) -> dict:
     falsify = None
     for r in ids:
         spec = _spec(ledger, r)
+        if spec.get("kind") == "check" and str(spec["code"]["cmd"][-1]).endswith("highprec.jl"):
+            try:   # a passing high-precision recheck of the statement counts as a precision check
+                res = json.loads((ledger / "runs" / r / "result.json").read_text())
+                if (res.get("reported") or {}).get("check", {}).get("outcome") == "pass":
+                    precision_checked = True
+            except (OSError, ValueError):
+                pass
         if spec.get("kind") == "check" and str(spec["code"]["cmd"][-1]).endswith("falsify.jl"):
             try:
                 res = json.loads((ledger / "runs" / r / "result.json").read_text())

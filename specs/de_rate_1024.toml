@@ -23,7 +23,7 @@ device         = "cpu"
 
 [resources]
 threads    = 1
-mem_gb     = 8
+mem_gb     = 6
 gpu        = false
 walltime_s = 3600
 

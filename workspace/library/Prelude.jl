@@ -21,6 +21,7 @@ function real_param(name::AbstractString)
 end
 
 tojson(x::AbstractFloat) = string(x)
+tojson(x::Rational) = string(x)                   # exact, e.g. "1//3"
 tojson(x::Union{AbstractString,Integer,Bool,Nothing}) = x
 tojson(x::AbstractDict) = Dict{String,Any}(string(k) => tojson(v) for (k, v) in x)
 tojson(x::AbstractVector) = Any[tojson(v) for v in x]

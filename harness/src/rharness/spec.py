@@ -9,7 +9,7 @@ from pathlib import Path
 SCHEMA = "run/0.1"
 KINDS = {"experiment", "check"}  # Phase 0: lit_lookup / review come with the ledger
 MODES = {"exploration", "confirmation"}
-ARITHMETIC = {"Float32", "Float64", "BigFloat", "Arb", "Interval"}
+ARITHMETIC = {"Float32", "Float64", "BigFloat", "Arb", "Interval", "Exact"}   # Exact = integers/rationals
 DETERMINISM = {"bitwise", "tolerance"}  # "statistical" deferred
 MAX_MEM_GB = 12  # 16 GB workstation, shared with the agent runtime and Docker
 

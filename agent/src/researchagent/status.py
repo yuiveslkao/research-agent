@@ -173,14 +173,14 @@ class Snapshot:
         }
 
     def _certified_violation(self, run_id: str) -> bool:
-        """The run is a `certify` check that found a violation (an interval-arithmetic counterexample)."""
+        """The run is a `certify` (interval) or `exhaustive` (exact) check that found a violation."""
         try:
             d = self.ledger / "runs" / run_id
             cmd = (tomllib.loads((d / "spec.toml").read_text()).get("code") or {}).get("cmd") or [""]
             outcome = ((json.loads((d / "result.json").read_text()).get("reported") or {}).get("check") or {}).get("outcome")
         except (OSError, ValueError):
             return False
-        return str(cmd[-1]).endswith("certify.jl") and outcome == "violated"
+        return str(cmd[-1]).endswith(("certify.jl", "exhaustive.jl")) and outcome == "violated"
 
     # ---- human status and history
     def records(self, root: str) -> list[dict]:

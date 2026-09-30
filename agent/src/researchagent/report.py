@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import claims as claims_mod
 from . import status as status_mod
-from .glossary import CERTIFIED, MEANING, SET_BY, STATUSES
+from .glossary import CERTIFIED, EXHAUSTIVE, MEANING, SET_BY, STATUSES
 
 REPORT_SCHEMA = "report/0.1"
 SCHEMA_FILE = Path(__file__).parent / "schemas" / "report-0.1.schema.json"
@@ -98,6 +98,8 @@ def claim_entry(snap: status_mod.Snapshot, root: str) -> dict:
         "supported_as": d["supported_as"],
         "evidence": {"grade": d["grade"], "certified": any((n.get("evidence") or {}).get("certified")
                                                             for n in notes if n["id"] in d["support"]),
+                     "exhaustive": any((n.get("evidence") or {}).get("exhaustive")
+                                       for n in notes if n["id"] in d["support"]),
                      "findings": [_note_entry(n) for n in d["findings"]],
                      "critiques": [_note_entry(n) for n in d["critiques"]],
                      "counterexamples": d["counterexamples"], "runs": cited},
@@ -126,7 +128,7 @@ def build_report(ledger: Path, campaign: str | None = None, meta: dict | None = 
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "campaign": _drop(dict(meta or {}, id=campaign)) if campaign else None,
         "glossary": {"statuses": {s: MEANING[s] for s in STATUSES}, "set_by": SET_BY, "grades": GRADE_MEANING,
-                     "certified": CERTIFIED},
+                     "certified": CERTIFIED, "exhaustive": EXHAUSTIVE},
         "claims": claims,
         "open_objections": reg["open_objections"],
         "attempts": [a for a in reg["failed_attempts"] if a["id"] not in linked],
@@ -168,6 +170,8 @@ def markdown_claim(c: dict, objections: list[dict] | None = None) -> list[str]:
                  f"{', '.join(ce['run_ids']) or '-'}): {ce.get('statement')}")
     if c["evidence"].get("certified"):
         L.append("- **certified at the evaluated points** (interval arithmetic; finite, not a proof)")
+    if c["evidence"].get("exhaustive"):
+        L.append("- **exhaustively checked on a finite domain** (exact enumeration; nothing beyond that domain)")
     for p in c["proofs"]:
         who = "the AI, not human-reviewed" if not p["author"].startswith("human:") else p["author"]
         L.append(f"- **proof** {p['id']} by {who}" + ("" if p["current"] else " (bound to an earlier version)")

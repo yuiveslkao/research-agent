@@ -19,7 +19,7 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | Tool | Who | Does |
 |---|---|---|
 | `submit_experiment` | both | Commits agent-written Julia to the lab worktree, builds a spec, runs it in Docker, waits, returns the summary |
-| `submit_check` | both | Same for an executable statement, run through `falsify`, `highprec` or `certify` (interval arithmetic at given points) |
+| `submit_check` | both | Same for an executable statement, run through `falsify`, `highprec`, `certify` (interval arithmetic at given points) or `exhaustive` (exact statements over a finite discrete domain) |
 | `inspect_run`, `read_artifact`, `list_runs` | both | Read records: status, params, reported metrics, output files, stdout/stderr, the Julia source that ran |
 | `rerun_run`, `compare_runs` | both | Reproduce a run from its sealed spec; compare metrics of two runs (e.g. 2 precisions) |
 | `submit_falsify_bound` | both | Try to break `|error| <= bound` for the DE testbed over a parameter box, from a bound expression (no Julia to write) |
@@ -120,7 +120,7 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 
 ## What is verified and what is not
 
-Verified in the development sandbox (106 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
+Verified in the development sandbox (109 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
 `RESEARCH_TEST_JULIA` is set, everything else with a fake Julia):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
@@ -131,6 +131,7 @@ Verified in the development sandbox (106 agent tests, 24 harness tests, no LLM; 
   history, the glossary, the JSON report against its schema, the `research-claims` CLI, and that no MCP tool reaches
   `proven`.
 - Interval arithmetic (`checkers/test_intervals.jl`) and the `certify` checker on the real DE library and statements.
+- The exact toolkit (`workspace/library/test_exact.jl`) and the `exhaustive` checker on exact statements.
 - Evaluation: run visibility (`code.paths`), sealed `EV-` campaigns, question validation, scoring with scripted good
   and bad agents (a false proof is a critical failure), human grades and overrides, summaries, the `research-eval` CLI.
 
@@ -160,6 +161,10 @@ Verified in the development sandbox (106 agent tests, 24 harness tests, no LLM; 
 - **Compression:** explicitly off in both profiles (Hermes' default is on at 50% of the context window). Summaries paraphrase run ids and digits and change the cached prefix; the ledger is the durable memory instead. Enable with `research-install-profiles --compression` only if turns approach half the context window.
 - **Turn limits:** `agent.max_turns` 60 is a safety net only (Hermes' own default is unlimited because caps caused silent mid-task truncation); `agent.run_budget_seconds` 1200 makes Hermes ask the agent to wrap up at 80% of that; the driver kills a turn at 1800 s.
 - **Literature:** arXiv only (the `arxiv` tool and verified `claim.sources`).
+- **Exact work:** `workspace/library/Exact.jl` (rational linear algebra, interpolatory weights, enumeration, canonical
+  forms under relabeling, overflow-checked integer matrices, sequence guessing that must fit unused terms) and the
+  `exhaustive` checker. It deliberately has no graph-structure helpers (strong components etc.): they would give away
+  the characterization in golden question GQ-MAT-01.
 - **Julia packages:** only SpecialFunctions plus the standard library for now; the run sandbox has no network, so a missing package shows up as `Package X not found`. Add packages on the host and commit `Manifest.toml`, e.g.
   `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
 - **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.

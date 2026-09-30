@@ -346,8 +346,10 @@ def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str = "", p
     return run_summary(ctx, run_id)
 
 
-CHECKERS = ("highprec", "falsify", "certify")
+CHECKERS = ("highprec", "falsify", "certify", "exhaustive")
 MAX_POINTS = 50
+MAX_EXHAUSTIVE = 100_000_000          # DOMAIN points per exhaustive check (walltime caps the rest)
+ARITHMETIC = {"certify": "Interval", "exhaustive": "Exact"}
 
 
 def _check_points(points) -> list[dict]:
@@ -365,7 +367,8 @@ def _check_points(points) -> list[dict]:
 
 def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: str,
                  precision_bits: int = 256, evals: int = 1000, starts: int = 6, grid: int = 3,
-                 walltime_s: int = 900, seed: int = 1, points: list[dict] | None = None) -> dict:
+                 walltime_s: int = 900, seed: int = 1, points: list[dict] | None = None,
+                 limit: int = 1_000_000) -> dict:
     _require_role(ctx, {"researcher", "critic", "human"})
     _require_hypothesis(ctx)
     if kind not in CHECKERS:
@@ -385,6 +388,10 @@ def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: 
     params = {"statement": rel.removeprefix("workspace/"), "module": module}
     if kind == "falsify":
         params.update({"evals": evals, "starts": starts})
+    elif kind == "exhaustive":
+        if not isinstance(limit, int) or not 1 <= limit <= MAX_EXHAUSTIVE:
+            raise ToolError(f"limit must be an integer in [1, {MAX_EXHAUSTIVE}]")
+        params["limit"] = limit
     elif kind == "certify" and points:
         params.update({"points": _check_points(points), "grid": 0})     # given points only
     else:
@@ -397,7 +404,7 @@ def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: 
         cmd=[ctx.settings.julia_cmd, "--project=envs/main", f"../checkers/{kind}.jl"],
         meta=meta, precision_bits=precision_bits, walltime_s=walltime_s, threads=1, mem_gb=4,
         seed=seed, determinism="bitwise", rel_tol=None, params=params,
-        arithmetic="Interval" if kind == "certify" else "BigFloat")
+        arithmetic=ARITHMETIC.get(kind, "BigFloat"))
     run_id = _run(ctx, spec, tag)
     _audit(ctx, "submit_check", run_id)
     return run_summary(ctx, run_id)

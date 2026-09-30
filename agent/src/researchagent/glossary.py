@@ -20,10 +20,13 @@ MEANING = {
     "proven": "Proof reviewed by a human (reviewer and date recorded). Only a human can set this.",
 }
 
-# Evidence flag (not a status): what a `certify` check establishes.
+# Evidence flags (not statuses): what `certify` and `exhaustive` checks establish.
 CERTIFIED = ("the claim's margin was enclosed above 0 in interval arithmetic (MPFR outward rounding) at every evaluated "
              "point: it holds exactly at those finitely many points. Not a proof over the whole scope; it never sets "
-             "proven or proven_AI. A certified counterexample is a violation enclosed below 0.")
+             "proven or proven_AI. A certified counterexample is a violation enclosed below 0 (certify) or found in "
+             "exact arithmetic (exhaustive).")
+EXHAUSTIVE = ("an exact check held at every point of a finite DOMAIN (complete enumeration). It settles that finite "
+              "statement only; a claim about a larger range still needs a proof, and it never sets proven or proven_AI.")
 
 # Who may confer each status (documentation and CLI help; enforcement lives in status.py and tools.py).
 SET_BY = {

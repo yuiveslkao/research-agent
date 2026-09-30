@@ -51,6 +51,12 @@ outcome `certified` gets the evidence flag `certified` (the claim holds exactly 
 `numerically-supported`. A counterexample named from a `certify` run with outcome `violated` is marked `certified` in
 the report. `certified` is reserved vocabulary: agents do not write it, the server derives it.
 
+`submit_check(kind="exhaustive")` runs an exact statement (`holds(θ)` over a finite discrete DOMAIN) at every point.
+Outcome `exhausted` sets the evidence flag `exhaustive` (and grade `falsification-tested`): the finite statement held
+everywhere on that DOMAIN, which says nothing beyond it; the status stays `numerically-supported`. A `violated`
+exhaustive run is an exact counterexample and is marked certified. (Open question for the owner: should a claim whose
+scope *is* a finite set, checked exhaustively, get its own status?)
+
 ## Human status and review
 
 ```

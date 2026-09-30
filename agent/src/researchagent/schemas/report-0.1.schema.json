@@ -487,6 +487,10 @@
               "certified": {
                 "type": "boolean",
                 "description": "a supporting note cites a certify run with outcome certified (finite points, not a proof)"
+              },
+              "exhaustive": {
+                "type": "boolean",
+                "description": "a supporting note cites an exhaustive check with outcome exhausted (finite domain only)"
               }
             }
           },

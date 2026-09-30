@@ -18,9 +18,9 @@ src = open(script).read() if os.path.exists(script) else ""
 out = os.environ["RUN_OUT"]
 if "FAILME" in src:
     print("ERROR: LoadError: FAILME requested", file=sys.stderr); sys.exit(1)
-if script.endswith(("falsify.jl", "highprec.jl", "certify.jl")):
+if script.endswith(("falsify.jl", "highprec.jl", "certify.jl", "exhaustive.jl")):
     kind = os.path.basename(script)[:-3]
-    bad, good = {{"falsify": ("violated", "survived"), "highprec": ("fail", "pass"), "certify": ("violated", "certified")}}[kind]
+    bad, good = {{"falsify": ("violated", "survived"), "highprec": ("fail", "pass"), "certify": ("violated", "certified"), "exhaustive": ("violated", "exhausted")}}[kind]
     outcome = bad if "PLANTED" in open(os.path.join(os.getcwd(), spec["params"]["statement"])).read() else good
     json.dump({{"check": {{"kind": kind, "outcome": outcome}}, "metrics": {{"score": "0.5"}}}}, open(os.path.join(out, "reported.json"), "w"))
     sys.exit(0)

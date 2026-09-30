@@ -32,6 +32,9 @@ No randomness unless seeded from `seed`; runs must be bitwise reproducible (no t
 Library (DESinc): de_quad(f, N, h) integrates f(x, 1-x, 1+x) over (-1,1) with the DE formula;
 de_h(N, d, alpha); family_f(a, b) = (x,omx,opx)->omx^a*opx^b; family_exact(a, b).
 Precision: BigFloat with precision_bits p resolves errors down to ~2^-p. Float64 cannot show errors < 1e-15.
+Exact work (integers, rationals, finite structures): include library/Exact.jl (qq, rref, nullspace_q, solve_q,
+interpolatory_weights, binary_matrices, combinations, permutations_of, canonical_form, orbit_size, checked_matmul,
+checked_matpow, guess_polynomial, guess_recurrence: guesses must also fit terms not used to fit them).
 """
 
 STATEMENT_CONTRACT = """\
@@ -49,6 +52,10 @@ proof). `highprec` evaluates a grid. `certify` evaluates the margin in interval 
 grid): 'violated' = a certified counterexample (stops at the first), 'certified' = the claim holds exactly at those
 finitely many points (NOT a proof over DOMAIN), 'inconclusive' = raise precision_bits. Encode the claim over EXACTLY
 the scope you state.
+Exact statements (integers, rationals, finite structures) use kind 'exhaustive' instead: DOMAIN has only ranges or
+vectors, and `holds(θ)` returns true, or anything else as the counterexample witness (e.g. a matrix); optional
+`cases(θ)` counts the cases it examined. Outcome 'violated' (first counterexample), 'exhausted' (every DOMAIN point
+held: settles that finite set only) or 'partial' (stopped at `limit` points).
 """
 
 
@@ -58,12 +65,13 @@ DESC_EXPERIMENT = (
     "`hypothesis` is the falsifiable statement this run is meant to test.\n\n" + SCRIPT_CONTRACT)
 
 DESC_CHECK = (
-    "Run a `falsify`, `highprec` or `certify` check on an executable statement you wrote. "
+    "Run a `falsify`, `highprec`, `certify` or `exhaustive` check on an executable statement you wrote. "
     "kind: 'falsify' (adversarial search, budget `evals`/`starts`), 'highprec' (grid of `grid` points "
     "per dimension) or 'certify' (interval arithmetic at `points`, e.g. [{\"d\": \"1\", \"a\": \"1//2\", \"N\": 8}], "
     "or on the grid if no points; use it to certify a counterexample found by falsify). Result: reported.check.outcome "
-    "is 'violated'/'survived' (falsify), 'pass'/'fail' (highprec) or 'violated'/'certified'/'inconclusive' "
-    "(certify).\n\n" + STATEMENT_CONTRACT)
+    "is 'violated'/'survived' (falsify), 'pass'/'fail' (highprec), 'violated'/'certified'/'inconclusive' "
+    "(certify) or 'violated'/'exhausted'/'partial' (exhaustive, exact, up to `limit` DOMAIN points).\n\n"
+    + STATEMENT_CONTRACT)
 
 
 DESC_NOTE = (
@@ -148,9 +156,9 @@ def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
     async def submit_check(kind: str, name: str, module: str, statement_source: str,
                            precision_bits: int = 256, evals: int = 1000, starts: int = 6,
                            grid: int = 3, walltime_s: int = 900, seed: int = 1,
-                           points: list[dict] | None = None) -> dict:
+                           points: list[dict] | None = None, limit: int = 1_000_000) -> dict:
         return await call(tools.submit_check, kind, name, module, statement_source, precision_bits,
-                          evals, starts, grid, walltime_s, seed, points)
+                          evals, starts, grid, walltime_s, seed, points, limit)
 
     @mcp.tool()
     async def inspect_run(run_id: str) -> dict:

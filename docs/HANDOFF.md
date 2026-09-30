@@ -100,7 +100,8 @@ claim planted end-to-end.
   Claude Code/Claude.ai. Use an API key for anything unattended.
 - The evidence grades measure effort, not truth. Numerics are BigFloat; interval arithmetic exists only in the `certify`
   checker, which certifies finitely many points (build step 4).
-- Statements and checkers assume real-valued bounds; integer or combinatorial questions are unsupported by the checkers.
+- Real-valued statements use falsify/highprec/certify; exact (integer, rational, finite) statements use `exhaustive`
+  (build step 5). There are no SAT/ILP or symbolic tools.
 - Evidence derivation counts only rerun/compare/highprec/falsify records; the Critic's freehand experiments count only as "independent".
 - Critic and Researcher use the same model, so their errors are correlated.
 
@@ -198,7 +199,7 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 2. **Done** (section 9). Add the `attempt` note kind and the versioned JSON report schema.
 3. **Done** (section 9). Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
 4. **Done** (section 9). (Optional, supporting only) interval-arithmetic checker and record type.
-5. Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
+5. **Done** (section 9). Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
    (Storage, binding and the queue exist; the workflow, structured proof format and review pass do not.)
 7. Novelty search and human review loop.
@@ -297,3 +298,23 @@ policy, cost ceilings, proof-stage evaluation, a one-evening first version).
   `arithmetic = "Interval"`; a cited `certified` run sets the evidence flag `certified` (and counts as a precision check);
   a counterexample from a `violated` certify run is marked certified in `report.json`. No status is ever set by it.
 - Tests: 106 agent tests with `RESEARCH_TEST_JULIA=/path/to/julia` (103 plus 3 skipped without), 24 harness tests.
+
+### Build step 5: exact/finite toolkit and non-real statements (same branch)
+
+- `workspace/library/Exact.jl` (stdlib only): exact rationals (`qq`), rref/rank/nullspace/solve over Q,
+  `interpolatory_weights` (exact weights of a rule from nodes and moments, e.g. Simpson, 3/8), enumeration
+  (`binary_matrices`, `combinations`, `permutations_of`), symmetry reduction (`canonical_form`, `orbit_size` under
+  relabeling), overflow-checked integer matrices, and sequence guessing (`guess_polynomial`, `guess_recurrence`) that
+  only returns a formula which also fits terms not used to determine it (a conjecture label, not a statement about
+  all n). Tests: `workspace/library/test_exact.jl`. No graph-structure helpers, on purpose (GQ-MAT-01).
+- `checkers/exhaustive.jl`: exact statements (`holds(θ)` returning true or a witness, optional `cases(θ)`) over a
+  finite discrete DOMAIN; outcome violated (first counterexample and witness, search stops) / exhausted / partial
+  (`limit` reached), with domain size and case counts recorded as coverage.
+- Record type: `submit_check(kind="exhaustive", limit=...)`, run arithmetic `Exact` (new harness value); `exhausted`
+  sets the evidence flag `exhaustive` and grade falsification-tested; a violated exhaustive run is an exact, certified
+  counterexample. Status is never set by it.
+- Verified with Julia 1.9.4: the checker refutes the GQ-MAT-02 statement at N = 2 with witness [1 0; 0 0] after 2 of 3
+  points and confirms Simpson's rule is exact through degree 3.
+- Not done from HANDOFF 5.2: SAT/ILP/constraint solvers and symbolic tools (need packages the run sandbox cannot
+  download; add them to the pinned environment first), OEIS lookups (literature is arXiv-only by decision).
+- Tests: 109 agent tests with `RESEARCH_TEST_JULIA` (104 plus 5 skipped without), 24 harness tests.

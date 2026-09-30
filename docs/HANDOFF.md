@@ -202,7 +202,8 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 5. **Done** (section 9). Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. **Done** (section 9). Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
 7. **Done** (section 9; the novelty *standard* is still the owner's). Novelty search and human review loop.
-8. Compute expansion (TSUBAME, GPU) only when a real question needs it.
+8. Compute expansion (TSUBAME, GPU) only when a real question needs it. **Not started**: no real question has run yet,
+   and when it is needed is the owner's decision (section 8).
 
 ## 8. Owner answers so far, and what remains
 
@@ -349,3 +350,25 @@ Details and the defaults chosen for HANDOFF 5.4: [status.md](status.md#proof-sta
   seed), so review verdicts feed back into research.
 - Not done, owner decision: the novelty standard before reporting; nothing is gated on novelty.
 - Tests: 128 agent tests with `RESEARCH_TEST_JULIA` (123 plus 5 skipped without), 24 harness tests.
+
+### Where this leaves the project (after steps 1-7)
+
+Everything above was built and tested without a real model: agents were scripted, Julia runs used a fake binary except
+the checkers and verification scripts, which ran on Julia 1.9.4. Next, on the owner's machine:
+
+1. `pip install -e harness -e agent`, `research-install-profiles --root .`, `research-doctor --root . --ask`
+   (MCP now has 15 tools; the researcher and critic profiles changed).
+2. In the pinned 1.11.3 container: `julia checkers/test_intervals.jl`, `julia workspace/library/test_exact.jl`, and
+   `rh submit specs/check_certify_C0003.toml` (expected `violated`, relmargin enclosing -82.3502...). The interval
+   code calls MPFR directly and was only run on Julia 1.9.4.
+3. First real evaluation (evaluation.md section 9): `research-eval run GQ-MAT-02`, `research-eval run GQ-DE-01`, then
+   `research-eval summary`; calibrate the cost ceilings in `eval/questions/*.toml` from the measured runs.
+
+Decisions that are the owner's (defaults are in place and documented):
+- proof stage: the start rule (survived check), the limit of 3 proofs per claim and campaign, and the review pass being
+  required rather than recommended (`proofs.py`);
+- the novelty standard before reporting (nothing is gated on novelty);
+- whether an exhaustively checked claim about a finite set deserves its own status (it stays numerically-supported);
+- hold-out golden questions (kept outside the repository), questions for point configurations and conformal maps, and
+  a citation for the pi^2 limit in GQ-DE-02;
+- TSUBAME/GPU (step 8), API key vs login and the monthly cost ceiling.

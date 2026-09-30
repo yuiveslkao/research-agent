@@ -14,3 +14,4 @@ ledger/calls.jsonl
 ledger/status/
 ledger/proofs/
 ledger/searches.jsonl
+ledger/eval/

@@ -79,6 +79,11 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 - `hermes -z` (one-shot) runs with approvals bypassed (`HERMES_YOLO_MODE=1`), so the toolset lock-down is the only barrier to host access, not a per-command approval. Exit code 2 means the turn failed or stopped partway; Hermes hides the reason in `-z` mode, look in `~/.hermes/profiles/<role>/logs/agent.log`.
 - Agents can write only `workspace/agent/experiments/*.jl` and `workspace/agent/statements/*.jl`, and only in the
   lab worktree (never on your branch). Checkers, the library, specs, grades and run records are not writable.
+- Agent runs can read only `workspace/` (without other agent files and the human test statements in
+  `workspace/statements/`), `checkers/`, and their own script (run spec `code.paths`). `eval/` answer keys, `docs/`
+  and earlier campaigns' scripts are not extracted into the run directory.
+- Evaluation campaigns (`EV-...`, started by `research-eval`) are sealed: the agents see only that campaign's runs,
+  notes and claims, and those claims stay out of the normal registry, brief and review queue ([evaluation.md](evaluation.md)).
 - Runs execute in Docker (no network, CPU/RAM/walltime capped server-side: 4 threads, 6 GB, 1800 s, 64..4096 bits).
 - Per-campaign run budget (`--max-runs`, default 30; reruns count).
 - Roles are enforced in the server: the Researcher cannot write critiques, the Critic cannot write decisions or proofs.
@@ -115,7 +120,7 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 
 ## What is verified and what is not
 
-Verified in the development sandbox (86 agent tests, 19 harness tests, all with fake Julia and no LLM):
+Verified in the development sandbox (101 agent tests, 24 harness tests, all with fake Julia and no LLM):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
 - Campaign logic with a scripted agent standing in for Hermes: stop on accept, round limit, ignoring an
@@ -124,6 +129,8 @@ Verified in the development sandbox (86 agent tests, 19 harness tests, all with 
 - Status model: derivation, proof binding, counterexamples, revisions and stale flags, human override and append-only
   history, the glossary, the JSON report against its schema, the `research-claims` CLI, and that no MCP tool reaches
   `proven`.
+- Evaluation: run visibility (`code.paths`), sealed `EV-` campaigns, question validation, scoring with scripted good
+  and bad agents (a false proof is a critical failure), human grades and overrides, summaries, the `research-eval` CLI.
 
 **Not verified** (needs your machine):
 - Hermes itself. I took these from Hermes' public docs, summarized by a fetch tool, and could not run Hermes:
@@ -145,7 +152,7 @@ Verified in the development sandbox (86 agent tests, 19 harness tests, all with 
 
 ## Decisions and open items
 
-- **Golden questions:** to be written by the owner; see [golden_questions.md](golden_questions.md). Until then, accuracy is judged by reading campaign reports.
+- **Golden questions:** five dev questions with verified keys and the `research-eval` runner: [evaluation.md](evaluation.md). The owner's own (hold-out) questions are still to be written.
 - **Server-enforced gates:** a `finding` must cite at least one run; `submit_experiment`/`submit_check` need a researcher `hypothesis` note since the last `finding` (reruns and the critic are exempt); a `critique` must cite at least one run from the current campaign; an "accept" only ends a campaign if the critic started a run, check or rerun that round.
 - **Compression:** explicitly off in both profiles (Hermes' default is on at 50% of the context window). Summaries paraphrase run ids and digits and change the cached prefix; the ledger is the durable memory instead. Enable with `research-install-profiles --compression` only if turns approach half the context window.
 - **Turn limits:** `agent.max_turns` 60 is a safety net only (Hermes' own default is unlimited because caps caused silent mid-task truncation); `agent.run_budget_seconds` 1200 makes Hermes ask the agent to wrap up at 80% of that; the driver kills a turn at 1800 s.
@@ -154,4 +161,4 @@ Verified in the development sandbox (86 agent tests, 19 harness tests, all with 
   `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
 - **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.
 - **Budget:** failed runs are refunded from the run budget but each role may fail at most 3 runs per campaign; the critic keeps 40% of the budget in reserve.
-- **Not built:** golden-question runner (questions still to be written), claim links beyond `about`, literature beyond arXiv, `interval_certify`.
+- **Not built:** claim links beyond `about`/`revises`, literature beyond arXiv, `interval_certify`.

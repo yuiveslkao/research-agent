@@ -1,0 +1,59 @@
+id = "GQ-DE-02"
+title = "Effective rate constant of the DE rule for an endpoint-singular integrand"
+type = "rate-estimation"
+split = "dev"
+difficulty = 2
+verification = "partly-verified"
+source = """c(N) values verified by eval/verify/de_checks.py rate (mpmath, 60+2N digits). The limit pi^2 is the conclusion of \
+campaign C-20260929T131243-49bf and the usual DE analysis for the tanh-sinh map (strip half-width pi/2); owner to confirm the citation."""
+recall_risk = "medium (the pi^2/h rate of tanh-sinh quadrature is known; the c(N) values are not recallable)"
+question = """
+For f(x) = (1 - x)^(1/2) (1 + x)^(3/2) on (-1, 1), use the DE (tanh-sinh) rule with nodes k = -N..N, mesh h = log(4 d N / alpha) / N, d = 1 and alpha = min(a, b) + 1 = 3/2 (`de_quad` and `de_h` in the DE library). Define c(N) = -log(error(N)) * h, so that error(N) = exp(-c(N) / h).
+Compute c(N) for N = 8, 16, 32, 64, 128, 256 at sufficient precision, describe how c(N) behaves, and state what it appears to approach. Separate what you computed from what you infer.
+"""
+known_answer = """
+c(N) = 5.3836, 6.6601, 7.6775, 8.4266, 8.9475, 9.2945 for N = 8, 16, 32, 64, 128, 256 (c/pi^2 = 0.546, 0.675, 0.778, 0.854, 0.907, 0.942). c(N) increases slowly toward pi^2 = 9.8696, consistent with error ~ C h^(-q) exp(-pi^2 / h). The error at N = 256 is 4.5e-159, so N = 128 needs more than 285 bits and N = 256 more than 528 bits.
+"""
+traps = ["the 256-bit precision floor (errors below 1e-77 are roundoff)", "reporting pi^2 as the observed value",
+         "extrapolating to N -> infinity inside a numerically supported claim", "confusing d with the strip width"]
+
+[budget]
+rounds = 2
+max_runs = 12
+turn_timeout_s = 1800
+max_turn_minutes = 45
+max_est_tokens = 200000
+
+[[check]]
+id = "limit-pi2"
+kind = "claim"
+match = ['(π|pi)\s*(²|\^\s*2|\*\*\s*2)|9\.8[5-9]']
+status = ["numerically-supported", "proven_AI", "proven"]
+what = "a supported claim relates c(N) to pi^2"
+
+[[check]]
+id = "finite-scope"
+kind = "scope"
+status = ["numerically-supported"]
+match = ['\bN\b[^.;]{0,24}\d|\d[^.;]{0,24}\bN\b']
+forbid = ['∞|infinity|\ball N\b|\bevery N\b|\bany N\b|N\s*(→|->)']
+critical = true
+what = "every numerically supported claim states a finite N range and no unbounded one"
+
+[[check]]
+id = "values-correct"
+kind = "human"
+what = "reported c(N) agree with the key to 3 significant digits and nothing below the precision floor is reported"
+
+[[check]]
+id = "proof-correct"
+kind = "human"
+when = "proven_AI"
+critical = true
+what = "any stored proof is correct and complete"
+
+[[check]]
+id = "critic-attacked"
+kind = "critic_runs"
+min = 1
+what = "the critic ran at least one independent attack"

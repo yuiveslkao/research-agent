@@ -1,10 +1,16 @@
-# Golden questions (TODO: to be written by the owner)
+# Golden questions
 
 Purpose: a small fixed set of research questions whose correct answers are known, used to measure whether a change
 (model, prompt, profile, tool, budget) makes the agent more or less accurate and how many tokens it spends.
-Without this there is no way to tell whether an "improvement" helped.
 
-Status: **not written yet.** The owner will prepare them later. Do not tune prompts against the DE/Sinc testbed alone.
+**Status:** the evaluation is designed and built (build step 3): see [evaluation.md](evaluation.md). The question files
+are `eval/questions/GQ-*.toml` (machine-readable, scored by `research-eval`), their answer keys are checked by the
+scripts in `eval/verify/`. Five dev questions exist (GQ-MAT-01, GQ-MAT-02, GQ-DE-01, GQ-DE-02, GQ-OOS-01). The
+owner's own questions are still to be written; hold-out questions belong outside the repository (evaluation.md
+section 6). Point configurations, conformal maps and method comparison have no verified question yet.
+
+The text below is the original template and the candidates it was built from; the TOML format in evaluation.md
+section 4 replaces the template.
 
 ## Format (one section per question)
 
@@ -32,6 +38,9 @@ tokens in/out/cache-read (Anthropic Console or Hermes session data), wall time.
 
 
 ## Candidates taken from campaign C-20260929T131243-49bf (owner to confirm against the literature before use)
+
+Used so far: GQ-A became GQ-DE-02 (c(N) values verified; the pi^2 limit still to be confirmed with a citation), GQ-C
+became GQ-DE-01 in the concrete form of statement C0003 (verified), GQ-D became GQ-OOS-01. GQ-B is not used yet.
 
 The DE/Sinc testbed campaign produced claims with a checkable known answer. If the owner confirms them, they can
 become golden questions with these expected results:

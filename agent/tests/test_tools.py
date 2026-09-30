@@ -256,3 +256,23 @@ def test_failed_runs_are_refunded_but_capped(ctx):
         submit(ctx, script="FAILME\n")
     with pytest.raises(ToolError, match="stop retrying"):
         submit(ctx)
+
+
+def test_agent_runs_cannot_read_outside_workspace_and_checkers(ctx, root):
+    (root / "eval").mkdir()
+    (root / "eval" / "GQ-X.toml").write_text('known_answer = "42"\n')
+    (root / "checkers" / "falsify.jl").write_text("# checker\n")
+    (root / "workspace" / "statements").mkdir()
+    (root / "workspace" / "statements" / "C0003.jl").write_text("# PLANTED flaw\n")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "answer key"], check=True)
+    first = submit(ctx)
+    r = tools.submit_experiment(ctx, "second", "h", script="println(2)\n")
+    assert r["status"] == "completed"
+    code = ctx.paths.work / r["run_id"] / "code"
+    assert sorted(p.name for p in code.iterdir()) == ["checkers", "workspace"]
+    mine = sorted(p.name for p in (code / "workspace" / "agent" / "experiments").iterdir())
+    assert len(mine) == 1 and first["run_id"] not in mine                # earlier agent scripts are not visible
+    assert (code / "workspace" / "envs" / "main" / "Manifest.toml").exists()
+    assert not (code / "workspace" / "statements").exists()                  # human test statements stay hidden
+    assert tools.rerun_run(ctx, r["run_id"])["outcome"] == "pass"

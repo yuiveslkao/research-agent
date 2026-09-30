@@ -797,6 +797,9 @@
           },
           "check_outcome": {
             "type": "string"
+          },
+          "checker": {
+            "type": "string"
           }
         }
       }

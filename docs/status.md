@@ -64,6 +64,9 @@ research-claims report [--campaign C] [--out report.json] [--md]
 - Only `status.set_human_status` writes human statuses. It is not reachable from any MCP tool (tested statically and
   over the MCP protocol) and refuses to run in a process with `RESEARCH_ROLE` set to an agent role.
 
+Claims from evaluation campaigns (`EV-...`) are left out of `list`, `queue` and the whole-ledger report unless
+asked for by campaign (`--campaign EV-...`); their proofs are graded with `research-eval grade` (see evaluation.md).
+
 ## History
 
 `ledger/status/history.jsonl`, append-only, one record per change:

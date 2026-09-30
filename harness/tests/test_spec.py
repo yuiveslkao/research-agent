@@ -29,6 +29,10 @@ def test_hash_changes_with_params(tmp_path):
     (lambda s: s["code"].update(cmd="julia x.jl"), "argv"),
     (lambda s: s["numerics"].update(determinism="tolerance"), "rel_tol"),
     (lambda s: s["numerics"].update(device="gpu"), "cpu"),
+    (lambda s: s["code"].update(paths=[]), "code.paths"),
+    (lambda s: s["code"].update(paths=["../etc"]), "without '..'"),
+    (lambda s: s["code"].update(paths=["/etc"]), "relative"),
+    (lambda s: s["code"].update(paths=["--output=x"]), "relative"),
 ])
 def test_validation_rejects(tmp_path, mutate, msg):
     spec, _ = load_spec(make_spec(tmp_path))

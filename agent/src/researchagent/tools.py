@@ -28,7 +28,7 @@ from . import notes as notes_mod
 from . import status as status_mod
 from . import templates, tomlw
 from .arxiv import ArxivError
-from .config import MAX_MEM_GB, MAX_THREADS, MAX_WALLTIME_S, PRECISION_RANGE, Ctx
+from .config import MAX_MEM_GB, MAX_THREADS, MAX_WALLTIME_S, PRECISION_RANGE, RUN_EXCLUDE, RUN_PATHS, Ctx, isolated
 
 RUN_ID = re.compile(r"^R-[0-9]{8}T[0-9]{6}-[0-9a-f]{6}$")
 IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
@@ -118,12 +118,19 @@ def _check_run_id(run_id: str) -> str:
     return run_id
 
 
+def _sealed(ctx: Ctx) -> bool:
+    """An evaluation campaign: the agents may not see other campaigns' records."""
+    return ctx.settings.role in ("researcher", "critic") and isolated(ctx.campaign["id"])
+
+
 def _load(ctx: Ctx, run_id: str) -> tuple[dict, dict]:
     _check_run_id(run_id)
     d = ctx.paths.ledger / "runs" / run_id
     if not (d / "result.json").exists():
         raise ToolError(f"unknown run {run_id}")
     spec, _ = load_spec(d / "spec.toml")
+    if _sealed(ctx) and spec.get("meta", {}).get("campaign") != ctx.campaign["id"]:
+        raise ToolError(f"unknown run {run_id}")                    # other campaigns do not exist for this one
     return spec, load_result(ctx.paths, run_id)
 
 
@@ -209,6 +216,18 @@ def run_summary(ctx: Ctx, run_id: str) -> dict:
     return out
 
 
+def _run_paths(ctx: Ctx, commit: str, own: str) -> list[str]:
+    """code.paths for an agent run: RUN_PATHS minus RUN_EXCLUDE (other agent files, test statements), plus this
+    run's own file."""
+    out = []
+    for p in RUN_PATHS:
+        if p == "workspace":
+            out += [x for x in ctx.lab.ls(commit, "workspace") if x not in RUN_EXCLUDE]
+        else:
+            out.append(p)
+    return out + [own]
+
+
 def _base_spec(ctx: Ctx, *, kind: str, purpose: str, commit: str, cmd: list[str], meta: dict,
                precision_bits: int, walltime_s: int, threads: int, mem_gb: float, seed: int,
                determinism: str, rel_tol: float | None, params: dict) -> dict:
@@ -232,7 +251,7 @@ def _base_spec(ctx: Ctx, *, kind: str, purpose: str, commit: str, cmd: list[str]
     return {
         "schema": "run/0.1", "kind": kind, "mode": "exploration", "purpose": purpose,
         "meta": meta,
-        "code": {"commit": commit, "cwd": "workspace", "cmd": cmd},
+        "code": {"commit": commit, "cwd": "workspace", "cmd": cmd, "paths": _run_paths(ctx, commit, meta["script"])},
         "env": {"kind": "julia-project", "project": "envs/main", "julia": ctx.settings.julia_version},
         "numerics": num,
         "resources": {"threads": threads, "mem_gb": float(mem_gb), "gpu": False, "walltime_s": walltime_s},
@@ -395,6 +414,7 @@ def read_artifact(ctx: Ctx, run_id: str, path: str, max_bytes: int = 8000, tail:
 
 def list_runs(ctx: Ctx, limit: int = 20, campaign_only: bool = True) -> list[dict]:
     cid = ctx.campaign["id"]
+    campaign_only = campaign_only or _sealed(ctx)
     rows = []
     for d in sorted((ctx.paths.ledger / "runs").glob("R-*")):
         if not (d / "result.json").exists():
@@ -444,9 +464,10 @@ def _verify_sources(ctx: Ctx, claim: dict) -> list[dict]:
     return ok
 
 
-def _check_version_ref(snap: status_mod.Snapshot, ref: str, field: str) -> None:
-    """`about`/`revises` must name the current version of a claim (a hypothesis note id)."""
-    if ref not in snap.hyps:
+def _check_version_ref(snap: status_mod.Snapshot, ref: str, field: str, campaign: str | None = None) -> None:
+    """`about`/`revises` must name the current version of a claim (a hypothesis note id); in a sealed campaign,
+    one of its own."""
+    if ref not in snap.hyps or (campaign and snap.hyps[ref]["campaign"] != campaign):
         raise ToolError(f"claim.{field} must be a hypothesis note id (N-...) from read_notes or read_claims; "
                         f"{ref!r} is not one")
     head = snap.head(snap.root_of(ref))["id"]
@@ -489,7 +510,8 @@ def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
         raise ToolError(f"a critique must cite at least one run from this campaign ({cid}) in run_ids: "
                         "the run you examined or the attack you started")
     for r in run_ids:
-        if not (isinstance(r, str) and RUN_ID.match(r) and (ledger / "runs" / r / "result.json").exists()):
+        if not (isinstance(r, str) and RUN_ID.match(r) and (ledger / "runs" / r / "result.json").exists()) \
+                or (_sealed(ctx) and _run_campaign(ctx, r) != cid):
             raise ToolError(f"unknown run id {r!r}")
     snap = status_mod.Snapshot(ledger)
     claim = dict(claim) if isinstance(claim, dict) else claim
@@ -506,7 +528,7 @@ def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
         raise ToolError(str(e)) from e
     for f in ("about", "revises"):
         if cleaned and cleaned.get(f):
-            _check_version_ref(snap, cleaned[f], f)
+            _check_version_ref(snap, cleaned[f], f, cid if _sealed(ctx) else None)
     if cleaned and cleaned.get("counterexample"):
         _check_counterexample(ctx, cleaned["counterexample"], run_ids)
     evidence_sources = _verify_sources(ctx, cleaned) if cleaned and cleaned.get("sources") else None
@@ -545,6 +567,10 @@ def submit_proof(ctx: Ctx, claim: str, statement: str, scope: str, proof: str,
         _check_run_id(r)
     if not isinstance(claim, str) or not claim:
         raise ToolError("claim must be the claim's current version id (N-..., from read_claims)")
+    if _sealed(ctx):
+        h = status_mod.Snapshot(ctx.paths.ledger).hyps.get(claim)
+        if h is None or h["campaign"] != ctx.campaign["id"]:
+            raise ToolError(f"unknown claim {claim!r} in this campaign")
     try:
         rec = status_mod.add_proof(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], claim, statement, scope,
                                    proof, runs)
@@ -562,6 +588,8 @@ def read_claims(ctx: Ctx, campaign: str | None = None, limit: int = 10, status: 
     """Claims across all campaigns (or one) with their status, open objections and failed attempts; newest first."""
     if status is not None and status not in glossary.STATUSES:
         raise ToolError(f"status must be one of {list(glossary.STATUSES)}")
+    if _sealed(ctx):
+        campaign = ctx.campaign["id"]
     reg = claims_mod.registry(ctx.paths.ledger, campaign)
     if status:
         reg["claims"] = [c for c in reg["claims"] if c["status"] == status]

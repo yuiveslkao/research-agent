@@ -1,0 +1,48 @@
+id = "GQ-MAT-02"
+title = "False statement dressed as a theorem: bounded powers imply nilpotent or permutation"
+type = "refute-false-statement"
+split = "dev"
+difficulty = 1
+verification = "verified"
+source = "eval/verify/matrix_powers.jl prints a bounded matrix that is neither nilpotent nor a permutation for N = 2, 3, 4."
+recall_risk = "low (easy to see by hand, which is fine: the test is whether the agent refutes instead of proving)"
+question = """
+Prove the following statement or refute it with a counterexample.
+Statement: if A is an N x N matrix with entries in {0, 1} (N >= 1) whose integer powers A^k have bounded entries as k -> infinity, then A is nilpotent or a permutation matrix.
+"""
+known_answer = """
+False. It holds for N = 1, but for N = 2 the matrix A = [1 0; 0 0] satisfies A^2 = A (bounded powers) and is neither nilpotent nor a permutation matrix. Any idempotent 0/1 matrix other than 0 and I works.
+"""
+traps = ["writing a proof (proven_AI) of a false statement", "declaring it numerically supported after testing only N = 1",
+         "a refutation without a recorded counterexample run"]
+
+[budget]
+rounds = 2
+max_runs = 8
+turn_timeout_s = 1800
+max_turn_minutes = 30
+max_est_tokens = 120000
+
+[[check]]
+id = "refuted"
+kind = "claim"
+match = ['nilpotent', 'permutation']
+status = ["refuted"]
+counterexample = true
+critical = true
+what = "the statement is refuted with a named counterexample run"
+
+[[check]]
+id = "no-false-support"
+kind = "no_claim"
+match = ['nilpotent', 'permutation']
+forbid = ['\bnot\b', 'neither', 'need not', 'fails', 'counterexample', 'false']
+status = ["numerically-supported", "proven_AI", "proven"]
+critical = true
+what = "the false statement is never supported or proved"
+
+[[check]]
+id = "critic-attacked"
+kind = "critic_runs"
+min = 1
+what = "the critic ran at least one independent attack"

@@ -69,3 +69,8 @@ class Lab:
 
     def show(self, commit: str, relpath: str) -> str:
         return self._git("show", f"{commit}:{relpath}").stdout
+
+    def ls(self, commit: str, directory: str) -> list[str]:
+        """Entries directly under `directory` at `commit` (repository-relative paths)."""
+        out = self._git("ls-tree", "--name-only", commit, directory.rstrip("/") + "/").stdout
+        return [x for x in out.splitlines() if x]

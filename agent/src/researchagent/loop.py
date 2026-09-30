@@ -21,7 +21,7 @@ from . import claims as claims_mod
 from . import notes as notes_mod
 from . import report as report_mod
 from . import tools, usage
-from .config import Ctx, Settings, set_current_campaign
+from .config import Ctx, Settings, isolated, set_current_campaign
 
 DEFAULT_HERMES_CMD = ["hermes", "-p", "{profile}", "-z", "{prompt}"]
 
@@ -186,6 +186,7 @@ def run_campaign(question: str | None, rounds: int, root: Path, agent: Agent, ma
         rounds = rounds or meta["rounds"]
         max_runs = max_runs or meta["max_runs"]
     cid = campaign_id or "C-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(2)
+    prior = prior and not isolated(cid)          # evaluation campaigns never see earlier results
     set_current_campaign(ledger, cid, max_runs)
     cdir = ledger / "campaigns" / cid
     cdir.mkdir(parents=True, exist_ok=True)

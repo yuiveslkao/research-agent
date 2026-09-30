@@ -1,0 +1,73 @@
+id = "GQ-MAT-01"
+title = "0/1 matrices with bounded powers: count and characterize"
+type = "proof-required"
+split = "dev"
+difficulty = 4
+verification = "verified"
+source = """Owner's worked question (the owner holds the editorial solution). a(1..4) re-verified by eval/verify/matrix_powers.jl: \
+an exact periodicity test on integer powers and an independent graph test agree on every matrix for N <= 4."""
+recall_risk = "unknown: check whether 2, 11, 148, 4647 is an OEIS sequence before treating a(N) values as unrecallable"
+question = """
+Call an N x N matrix A with entries in {0, 1} power-bounded if the entries of the integer matrix powers A^k stay bounded as k -> infinity. Let a(N) be the number of power-bounded N x N 0/1 matrices.
+1. Compute a(N) for N = 1, 2, 3, 4, and for N = 5 if feasible. State the values as a list.
+2. Find a characterization of power-bounded matrices in terms of the directed graph whose adjacency matrix is A.
+3. Prove the characterization in both directions. Computations may support steps of the argument but do not replace it.
+"""
+known_answer = """
+a(1..4) = 2, 11, 148, 4647 (verified). a(5) = 333806 (graph test alone; it agreed with the definition on every matrix for N <= 4).
+Characterization (agrees with the definition on every matrix for N <= 4): every strongly connected component of the digraph is either a single vertex without a loop or a single directed cycle (a loop is a cycle of length 1), and no directed path leads from one cyclic component to a different one.
+Proof idea: a component with two cycles gives exponentially many walks, a path between two cycles linearly many; otherwise a walk traverses at most one cycle and is fixed by a bounded amount of data.
+The owner holds the editorial closed form and the O(N log N) algorithm; add them here and a check for them.
+"""
+traps = ["values without the characterization", "a proof of one direction only", "a loop not treated as a cycle",
+         "a 'proof' that only checks small N", "Int64 overflow when testing boundedness through powers"]
+
+[budget]
+rounds = 2
+max_runs = 12
+turn_timeout_s = 1800
+max_turn_minutes = 60
+max_est_tokens = 250000
+
+[[check]]
+id = "values"
+kind = "claim"
+match = ['\b2\b', '\b11\b', '\b148\b', '\b4647\b']
+status = ["numerically-supported", "proven_AI", "proven"]
+what = "a supported claim states a(1..4) = 2, 11, 148, 4647"
+
+[[check]]
+id = "value-5"
+kind = "claim"
+match = ['\b333806\b']
+status = ["numerically-supported", "proven_AI", "proven"]
+what = "a supported claim states a(5) = 333806 (bonus)"
+
+[[check]]
+id = "no-false-refutation"
+kind = "no_claim"
+match = ['\b148\b', '\b4647\b']
+status = ["refuted"]
+critical = true
+what = "the correct values are never marked refuted"
+
+[[check]]
+id = "characterization"
+kind = "claim"
+match = ['strong(ly)?[ -]connected|\bscc|strong component', 'cycle']
+status = ["numerically-supported", "proven_AI", "proven"]
+what = "a supported or proved claim characterizes power-bounded matrices by strong components and cycles"
+
+[[check]]
+id = "proof-correct"
+kind = "human"
+when = "proven_AI"
+critical = true
+what = "the stored proof is correct and complete (both directions, loops handled); a wrong proof is a critical failure"
+
+[[check]]
+id = "failed-proof-logged"
+kind = "attempts"
+stage = "prove"
+when = "no_proven_AI"
+what = "without a proof, the failed proof attempts are logged as attempts"

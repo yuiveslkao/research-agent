@@ -117,3 +117,22 @@ def test_cli_logs(repo, paths, tmp_path, capsys):
     assert main(["--root", str(repo), "logs", rid]) == 0
     out = capsys.readouterr().out
     assert "hello" in out and "boom" in out
+
+
+def test_code_paths_limit_what_a_run_can_read(repo, paths, tmp_path):
+    """Files outside code.paths (answer keys, notes) are not extracted, so the job cannot read them."""
+    (repo / "eval").mkdir()
+    (repo / "eval" / "answer.toml").write_text("secret = 42\n")
+    commit_job(repo, """
+        import json, os, pathlib
+        out = pathlib.Path(os.environ["RUN_OUT"])
+        seen = sorted(p.name for p in pathlib.Path("..").iterdir())
+        (out / "reported.json").write_text(json.dumps({"metrics": {"seen": " ".join(seen)}}))
+    """)
+    full = submit_run(make_spec(tmp_path), paths, LocalProcessExecutor())
+    assert "eval" in load_result(paths, full)["reported"]["metrics"]["seen"]
+    spec = make_spec(tmp_path).read_text().replace('cwd = "workspace"', 'cwd = "workspace"\npaths = ["workspace"]')
+    (tmp_path / "limited.toml").write_text(spec)
+    rid = submit_run(tmp_path / "limited.toml", paths, LocalProcessExecutor())
+    assert load_result(paths, rid)["reported"]["metrics"]["seen"] == "workspace"
+    assert rerun(rid, paths, LocalProcessExecutor())["outcome"] == "pass"      # the sealed spec keeps the limit

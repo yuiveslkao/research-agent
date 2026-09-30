@@ -48,6 +48,9 @@ def _run_row(ledger: Path, rid: str) -> dict | None:
     chk = ((res.get("reported") or {}).get("check") or {}).get("outcome")
     if chk:
         row["check_outcome"] = chk
+    if spec.get("kind") == "check":
+        script = str((spec.get("code") or {}).get("cmd", [""])[-1])
+        row["checker"] = Path(script).stem                    # falsify | highprec
     return _drop(row)
 
 

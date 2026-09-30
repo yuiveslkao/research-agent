@@ -62,6 +62,14 @@ def validate(spec: dict) -> None:
         raise SpecError("code.cmd must be a non-empty argv list of strings")
     if not isinstance(code.get("cwd", "."), str):
         raise SpecError("code.cwd must be a string")
+    if "paths" in code:
+        ps = code["paths"]
+        if not isinstance(ps, list) or not ps or not all(isinstance(x, str) and x for x in ps):
+            raise SpecError("code.paths must be a non-empty list of repository-relative paths")
+        for x in ps:
+            parts = x.replace("\\", "/").split("/")
+            if x.startswith("/") or ".." in parts or x.startswith("-"):
+                raise SpecError(f"code.paths entry {x!r} must be relative, without '..'")
 
     env = _need(spec, "env", (dict,), "spec")
     if _need(env, "kind", (str,), "env") != "julia-project":

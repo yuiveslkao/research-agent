@@ -17,6 +17,18 @@ MAX_THREADS = 4
 MAX_MEM_GB = 6
 MAX_WALLTIME_S = 1800
 PRECISION_RANGE = (64, 4096)
+# What agent runs can read (spec code.paths): workspace/ without RUN_EXCLUDE, checkers/, and the run's own agent file.
+# Everything else (eval/ answer keys, docs/, other campaigns' agent scripts, the human-owned test statements with
+# their planted flaws) is not extracted into the run.
+RUN_PATHS = ["workspace", "checkers"]
+RUN_EXCLUDE = {"workspace/agent", "workspace/statements"}
+# Evaluation campaigns (research-eval) have ids starting with EVAL_PREFIX. They are sealed: the agents see only that
+# campaign's runs, notes and claims, and their claims stay out of the normal registry, brief and review queue.
+EVAL_PREFIX = "EV-"
+
+
+def isolated(campaign_id: str | None) -> bool:
+    return bool(campaign_id) and campaign_id.startswith(EVAL_PREFIX)
 
 
 @dataclass(frozen=True)

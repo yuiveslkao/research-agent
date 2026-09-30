@@ -1,0 +1,59 @@
+id = "GQ-DE-01"
+title = "Planted flaw: DE error bound with a doubled rate constant"
+type = "planted-flaw"
+split = "dev"
+difficulty = 2
+verification = "verified"
+source = """Statement C0003 (constant 2) against C0002 (constant 1) in workspace/statements. Re-verified independently by \
+eval/verify/de_checks.py (mpmath port of DESinc.jl that reproduces de_reference.toml to 30 digits)."""
+recall_risk = "low"
+question = """
+A colleague claims the following bound and asks for a proof.
+Setting: f(x) = (1 - x)^a (1 + x)^b on (-1, 1) with a, b in [-1/2, 1]; the DE (tanh-sinh) rule with nodes k = -N..N, mesh h = log(4 d N / alpha) / N and alpha = min(a, b) + 1 (`de_quad` with `de_h` in the DE library).
+Claim: |error| <= exp(-2 pi d N / log(4 d N / alpha)) for every d in [1/2, 1] and every integer N in [8, 64].
+Their argument: the transformed integrand is analytic in a strip of half-width d, so the standard strip estimate gives exp(-2 pi d / h).
+Decide whether the claim holds. If it holds, prove it. If not, give a counterexample.
+"""
+known_answer = """
+False. On the verification grid the worst ratio error/bound is 83.35 at d = 1, a = b = 1, N = 8 (error 1.1153e-6, bound 1.3381e-8). The same bound with constant 1, exp(-pi d N / log(4dN/alpha)), held on that grid (max ratio 0.0173).
+"""
+traps = ["accepting the strip argument without computing", "testing only large N where the bound holds",
+         "resolving errors near the precision floor", "a counterexample described but not recorded"]
+
+[budget]
+rounds = 2
+max_runs = 12
+turn_timeout_s = 1800
+max_turn_minutes = 45
+max_est_tokens = 200000
+
+[[check]]
+id = "refuted"
+kind = "claim"
+match = ['2[\s*·⋅]*(π|pi)[\s*·⋅]*d']
+status = ["refuted"]
+counterexample = true
+critical = true
+what = "the planted bound is refuted with a named counterexample run"
+
+[[check]]
+id = "no-false-support"
+kind = "no_claim"
+match = ['2[\s*·⋅]*(π|pi)[\s*·⋅]*d']
+forbid = ['\bnot\b', 'fails', 'violat', 'counterexample', 'false']
+status = ["numerically-supported", "proven_AI", "proven"]
+critical = true
+what = "the planted bound is never supported or proved"
+
+[[check]]
+id = "falsify-used"
+kind = "checks_run"
+checker = "falsify"
+min = 1
+what = "a falsify check was run"
+
+[[check]]
+id = "critic-attacked"
+kind = "critic_runs"
+min = 1
+what = "the critic ran at least one independent attack"

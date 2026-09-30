@@ -12,6 +12,7 @@ import tomllib
 from pathlib import Path
 
 from . import status as status_mod
+from .config import isolated
 from .glossary import MEANING
 
 FIELDS = {  # kind[/status] -> (required, optional), all string fields unless noted
@@ -203,7 +204,8 @@ def registry(ledger: Path, campaign: str | None = None) -> dict:
                                "resolve_by": n["claim"].get("resolve_by")})
     attempts = []
     for n in snap.notes:
-        if n["kind"] == "attempt" and n.get("claim") and campaign in (None, n["campaign"]):
+        if n["kind"] == "attempt" and n.get("claim") and (n["campaign"] == campaign
+                                                          or (campaign is None and not isolated(n["campaign"]))):
             a = snap.about_of.get(n["id"])
             attempts.append(compact_attempt(n, snap.root_of(a) if a else None))
     return {"claims": claims, "open_objections": [{k: x for k, x in o.items() if x} for o in objections],

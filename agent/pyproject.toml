@@ -15,6 +15,7 @@ research-install-profiles = "researchagent.install_profiles:main"
 research-doctor = "researchagent.doctor:main"
 research-usage = "researchagent.usage:main"
 research-claims = "researchagent.claims_cli:main"
+research-eval = "researchagent.evaluation:main"
 
 [build-system]
 requires = ["setuptools>=68"]

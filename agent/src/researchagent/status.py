@@ -26,6 +26,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .config import isolated
 from .glossary import MEANING, STATUSES
 
 GRADES = ("none", "run", "reproduced", "cross-checked", "falsification-tested")
@@ -210,9 +211,10 @@ class Snapshot:
             "history": self.records(root),
         }
 
-    def claim_ids(self, campaign: str | None = None) -> list[str]:
+    def claim_ids(self, campaign: str | None = None, include_eval: bool = False) -> list[str]:
+        """Claims touched by `campaign`, or all claims; evaluation (EV-) claims only when asked for."""
         if campaign is None:
-            return list(self.threads)
+            return [r for r in self.threads if include_eval or not isolated(self.hyps[r]["campaign"])]
         return [r for r in self.threads if campaign in self.view(r)["campaigns"]]
 
 

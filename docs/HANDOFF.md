@@ -72,7 +72,8 @@ Rules:
 Repo layout, branch `claude/laughing-pascal-7zteju`; the owner runs it on Windows + WSL2 + Docker.
 
 - `harness/` (Python stdlib): sealed run records `run/0.1` (spec + result), `rh submit|logs|rerun|compare|show`,
-  DockerExecutor (no network at run time, `--user`, memory cap), LocalProcessExecutor for tests. 19 tests.
+  DockerExecutor (no network at run time, `--user`, memory cap), LocalProcessExecutor for tests; optional spec
+  `code.paths` limits which files a run can read.
 - `workspace/` (Julia 1.11.3, `envs/main` pins SpecialFunctions): `library/DESinc.jl` (DE quadrature), `Prelude.jl`,
   checkers `highprec.jl` and `falsify.jl`, executable statements `C0001–C0003` (C0003 has a planted flaw K=2),
   scripts, reference data. Agent-writable only in `workspace/agent/{experiments,statements}`.
@@ -80,7 +81,7 @@ Repo layout, branch `claude/laughing-pascal-7zteju`; the owner runs it on Window
   structured claims and derived evidence (`claims.py`); claim status, proofs and history (`status.py`); fixed vocabulary
   (`glossary.py`); JSON report (`report.py`, schema in `schemas/`); notes with role rules (`notes.py`); arXiv client with
   verification; statement generator (`templates.py`); `research-doctor`, `research-usage`, `research-install-profiles`,
-  `research-claims`. 86 tests.
+  `research-claims`, `research-eval` (`evaluation.py`). 101 tests; harness 24 tests.
 - Runtime: **Hermes Agent** with two profiles (researcher, critic), all built-in toolsets disabled, only the
   research MCP tools. Strands Agents was evaluated and rejected. Julia is the research language, Python only for infrastructure.
 - Server-enforced gates: a hypothesis note before experiments, claims must cite runs from the current campaign, critic must
@@ -165,7 +166,7 @@ Research scope (Tanaka-style numerical analysis): (1) sampling/discretization wi
 - Guard against evidence inflation and vocabulary drift ("established", "proved"): a fixed glossary enforced by the server.
 - Auditability: every reported claim traceable to run records; retention and backup of the ledger.
 
-### 5.8 Evaluation (deliberately unspecified: the successor must design it)
+### 5.8 Evaluation (designed and built in step 3: [evaluation.md](evaluation.md))
 The owner asked the new AI to explore and design the evaluation, including the golden questions, rather than fixing it now.
 The design should cover: what to measure (accuracy of statuses, false `proven_AI` claims, missed counterexamples, proof
 correctness, cost/tokens), the question set and its task-type mix, scoring (automatic vs human), regression protocol after every
@@ -194,7 +195,7 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 ## 7. Suggested build order for the successor
 1. **Done** (section 9). Implement the status model of section 2 (derived status, human override with append-only history, `proven` human-only, `proven_AI` only with a proof artifact) and a fixed glossary enforced by the server. Rename report wording accordingly and test that no agent tool can set `proven`.
 2. **Done** (section 9). Add the `attempt` note kind and the versioned JSON report schema.
-3. Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
+3. **Done** (section 9). Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
 4. (Optional, supporting only) interval-arithmetic checker and record type.
 5. Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
@@ -247,4 +248,32 @@ After pulling: `pip install -e agent`, re-run `research-install-profiles --root 
 `SOUL.md` files changed), then `research-doctor --root . --ask`. Older ledgers keep working: notes without `about` are
 attributed to the campaign's current hypothesis, and old `refutes` findings count as counterexamples via their cited runs.
 
-Next: build step 3 (evaluation design and runner).
+Next: build step 3 (evaluation design and runner). Done, see below.
+
+### Build step 3: evaluation (same branch)
+
+Design: [evaluation.md](evaluation.md) (metrics, scoring, integrity, question set, regression protocol, hold-out
+policy, cost ceilings, proof-stage evaluation, a one-evening first version).
+
+- **Answer keys cannot leak into runs.** The harness gained an optional spec field `code.paths`; agent runs now
+  extract only `workspace/` (without `workspace/agent/` and the human test statements in `workspace/statements/`,
+  whose header announces C0003's planted flaw), `checkers/`, and their own script. Before this, agent-written Julia
+  could read any committed file, including `docs/golden_questions.md` and every earlier agent script.
+- **Sealed evaluation campaigns.** Campaign ids `EV-...` see only their own runs, notes and claims; no prior brief; their
+  claims stay out of the normal registry, brief and review queue.
+- **Questions** `eval/questions/GQ-*.toml` (five dev questions: GQ-MAT-01 proof-required, GQ-MAT-02 false theorem,
+  GQ-DE-01 planted flaw, GQ-DE-02 rate estimation with a precision trap, GQ-OOS-01 out of scope). Keys verified by
+  `eval/verify/matrix_powers.jl` (a(1..4) = 2, 11, 148, 4647 by two independent tests on every matrix; a(5) = 333806 by
+  the graph test) and `eval/verify/de_checks.py` (mpmath port of DESinc.jl matching `de_reference.toml` to 30 digits;
+  planted bound violated with ratio 83.35 at d = 1, a = b = 1, N = 8; c(N) for N = 8..256). The pi^2 limit in GQ-DE-02
+  still needs a citation from the owner.
+- **Runner and scoring.** `research-eval run|score|pending|grade|summary|list|validate`. Automatic checks read the
+  end-of-run `report.json` (derived statuses) and the ledger; human checks stay pending until graded; a human grade
+  overrides any automatic result; verdict fail / pending / partial / pass; records store the configuration (model per
+  profile, installed and repository `SOUL.md` hashes, commit, dirty flag) so `summary` compares configurations.
+- Gaps: no questions for point configurations, conformal maps or method comparison (no verified key available);
+  cost ceilings are first guesses to calibrate on real runs; nothing has been run with a real model.
+- Tooling note for cloud sessions (julialang.org downloads are blocked there, conda-forge is not): fetch micromamba
+  from `https://conda.anaconda.org/conda-forge/linux-64/micromamba-2.9.0-0.tar.bz2`, then
+  `micromamba create -p <dir> -c conda-forge julia=1.9.4`. That is not the pinned 1.11.3 and has no SpecialFunctions,
+  but runs stdlib-only Julia such as `eval/verify/matrix_powers.jl` and the checkers with test statements.

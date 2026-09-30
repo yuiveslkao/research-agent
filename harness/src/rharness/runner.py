@@ -47,10 +47,19 @@ def resolve_commit(repo: Path, rev: str) -> str:
         raise ValueError(f"cannot resolve commit {rev!r}: {e.stderr.decode().strip()}") from e
 
 
-def materialize_code(repo: Path, commit: str, dest: Path) -> None:
-    """Extract exactly the committed tree; the dirty working tree is never executed."""
+def materialize_code(repo: Path, commit: str, dest: Path, paths: list[str] | None = None) -> None:
+    """Extract exactly the committed tree (or only `paths` of it); the dirty working tree is never executed.
+
+    `paths` (spec code.paths) limits what a run can read, e.g. agent runs see workspace/ and checkers/ only, so
+    documents outside them (evaluation answer keys, notes) are not visible to agent-written code."""
     dest.mkdir(parents=True, exist_ok=True)
-    data = _git(repo, "archive", "--format=tar", commit)
+    if paths:
+        present = [p for p in paths if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{commit}:{p}"],
+                                                      capture_output=True).returncode == 0]
+        if not present:
+            raise ValueError(f"none of code.paths {paths} exist at commit {commit[:8]}")
+        paths = present
+    data = _git(repo, "archive", "--format=tar", commit, *(["--", *paths] if paths else []))
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
         tar.extractall(dest, filter="data")
 
@@ -88,7 +97,7 @@ def submit_run(spec_path: str | Path, paths: Paths, executor: Executor) -> str:
     work = paths.work / run_id
     code_dir, out_dir, log_dir = work / "code", work / "out", work / "logs"
     out_dir.mkdir(parents=True)
-    materialize_code(paths.repo, commit, code_dir)
+    materialize_code(paths.repo, commit, code_dir, code.get("paths"))
     if not (code_dir / cwd).is_dir():
         raise ValueError(f"code.cwd {cwd!r} does not exist at commit {commit[:8]}")
     eh = env_hash(code_dir, cwd, spec["env"]["project"], spec["env"]["julia"])

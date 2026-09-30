@@ -42,9 +42,13 @@ and defines
     const DOMAIN = (d = (1//2, 1//1), N = 8:64, ...)   # (lo,hi) rational tuple = continuous, range = discrete
     margin(theta, ::Type{T}) where {T<:Real}           # >= 0 iff the claim holds at theta (theta is a NamedTuple)
     relmargin(theta, ::Type{T}) where {T<:Real}        # optional scale-free version, preferred by the checkers
-Generic over T (BigFloat is used); no Float64 literals. `falsify` searches DOMAIN for a violation
-('violated' returns the counterexample theta; 'survived' only records effort and is NOT a proof).
-`highprec` evaluates a grid. Encode the claim over EXACTLY the scope you state.
+Generic over T (BigFloat is used; `certify` uses an interval type); no Float64 literals; write constants as T(pi),
+T(1)/3; do not branch on comparisons of T values (for intervals they fail when undecidable). `falsify` searches
+DOMAIN for a violation ('violated' returns the counterexample theta; 'survived' only records effort and is NOT a
+proof). `highprec` evaluates a grid. `certify` evaluates the margin in interval arithmetic at given `points` (or on a
+grid): 'violated' = a certified counterexample (stops at the first), 'certified' = the claim holds exactly at those
+finitely many points (NOT a proof over DOMAIN), 'inconclusive' = raise precision_bits. Encode the claim over EXACTLY
+the scope you state.
 """
 
 
@@ -54,10 +58,12 @@ DESC_EXPERIMENT = (
     "`hypothesis` is the falsifiable statement this run is meant to test.\n\n" + SCRIPT_CONTRACT)
 
 DESC_CHECK = (
-    "Run a `falsify` or `highprec` check on an executable statement you wrote. "
-    "kind: 'falsify' (adversarial search, budget `evals`/`starts`) or 'highprec' (grid of `grid` points "
-    "per dimension). Result: reported.check.outcome is 'violated'/'survived' (falsify) or 'pass'/'fail' "
-    "(highprec).\n\n" + STATEMENT_CONTRACT)
+    "Run a `falsify`, `highprec` or `certify` check on an executable statement you wrote. "
+    "kind: 'falsify' (adversarial search, budget `evals`/`starts`), 'highprec' (grid of `grid` points "
+    "per dimension) or 'certify' (interval arithmetic at `points`, e.g. [{\"d\": \"1\", \"a\": \"1//2\", \"N\": 8}], "
+    "or on the grid if no points; use it to certify a counterexample found by falsify). Result: reported.check.outcome "
+    "is 'violated'/'survived' (falsify), 'pass'/'fail' (highprec) or 'violated'/'certified'/'inconclusive' "
+    "(certify).\n\n" + STATEMENT_CONTRACT)
 
 
 DESC_NOTE = (
@@ -93,9 +99,11 @@ DESC_FALSIFY = (
     "`bound` is an expression in N, d, a, b, alpha (=min(a,b)+1), h (=log(4dN/alpha)/N), pi and functions "
     "exp log sqrt abs min max, e.g. 'exp(-pi^2*N/log(4*d*N/alpha))*N^Q'. `consts` = {\"Q\": \"2.6\"} (UPPERCASE names, "
     "decimal strings). `domain` = {\"d\": [\"0.5\",\"1\"], \"a\": [...], \"b\": [...], \"N\": [8, 128]} (a,b > -1). "
-    "kind 'falsify' (search with budget evals/starts) or 'highprec' (grid). Result: reported.check.outcome "
-    "'violated' (with the worst parameters) or 'survived' (effort recorded, NOT a proof). Use it once on the claim "
-    "you are about to accept or reject; it counts against the run budget.")
+    "kind 'falsify' (search with budget evals/starts), 'highprec' (grid) or 'certify' (interval arithmetic at `points`, "
+    "e.g. the parameters falsify reported). Result: reported.check.outcome 'violated' (with the worst parameters) or "
+    "'survived' (effort recorded, NOT a proof); certify: 'violated' = certified counterexample, 'certified' = holds "
+    "exactly at those points only. Use it once on the claim you are about to accept or reject; it counts against "
+    "the run budget.")
 
 
 def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
@@ -139,9 +147,10 @@ def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
     @mcp.tool(description=DESC_CHECK)
     async def submit_check(kind: str, name: str, module: str, statement_source: str,
                            precision_bits: int = 256, evals: int = 1000, starts: int = 6,
-                           grid: int = 3, walltime_s: int = 900, seed: int = 1) -> dict:
+                           grid: int = 3, walltime_s: int = 900, seed: int = 1,
+                           points: list[dict] | None = None) -> dict:
         return await call(tools.submit_check, kind, name, module, statement_source, precision_bits,
-                          evals, starts, grid, walltime_s, seed)
+                          evals, starts, grid, walltime_s, seed, points)
 
     @mcp.tool()
     async def inspect_run(run_id: str) -> dict:
@@ -208,9 +217,10 @@ def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
     @mcp.tool(description=DESC_FALSIFY)
     async def submit_falsify_bound(bound: str, domain: dict | None = None, consts: dict | None = None,
                                    kind: str = "falsify", precision_bits: int = 256, evals: int = 600,
-                                   starts: int = 6, grid: int = 3, walltime_s: int = 900) -> dict:
+                                   starts: int = 6, grid: int = 3, walltime_s: int = 900,
+                                   points: list[dict] | None = None) -> dict:
         return await call(tools.submit_falsify_bound, bound, domain, consts, kind, precision_bits, evals,
-                          starts, grid, walltime_s)
+                          starts, grid, walltime_s, points)
 
     return mcp
 

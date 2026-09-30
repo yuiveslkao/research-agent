@@ -1,0 +1,39 @@
+schema  = "run/0.1"
+kind    = "check"
+mode    = "exploration"
+purpose = "certify (interval arithmetic) the planted-flaw counterexample of statement C0003"
+tests   = ["C0003"]
+
+# Expected: outcome = "violated" at the first point, violation_margin (relmargin) enclosing -82.3502352...
+# (err/bound = 83.3502, as in eval/verify/de_checks.py). Also run `julia checkers/test_intervals.jl` in the
+# same container once after any Julia upgrade: Intervals.jl calls MPFR directly and was developed on Julia 1.9.
+
+[code]
+commit = "HEAD"
+cwd    = "workspace"
+cmd    = ["julia", "--project=envs/main", "../checkers/certify.jl"]
+
+[env]
+kind    = "julia-project"
+project = "envs/main"
+julia   = "1.11.3"
+
+[numerics]
+arithmetic     = "Interval"
+precision_bits = 256
+rng            = "Xoshiro"
+seeds          = [1]
+determinism    = "bitwise"
+device         = "cpu"
+
+[resources]
+threads    = 1
+mem_gb     = 4
+gpu        = false
+walltime_s = 900
+
+[params]
+statement = "statements/C0003.jl"
+module    = "C0003"
+grid      = 0
+points    = [{d = "1", a = "1", b = "1", N = 8}, {d = "1//2", a = "0", b = "0", N = 16}]

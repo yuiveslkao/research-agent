@@ -34,7 +34,7 @@ de_h(N::Integer, d::T, α::T) where {T<:Real} = log(4 * d * N / α) / N
 family_f(a::T, b::T) where {T<:Real} = (x, omx, opx) -> omx^a * opx^b
 
 """Exact integral of the family: 2^(a+b+1) Γ(a+1) Γ(b+1) / Γ(a+b+2)."""
-family_exact(a::T, b::T) where {T<:AbstractFloat} =
+family_exact(a::T, b::T) where {T<:Real} =
     T(2)^(a + b + 1) * gamma(a + 1) * gamma(b + 1) / gamma(a + b + 2)
 
 end # module

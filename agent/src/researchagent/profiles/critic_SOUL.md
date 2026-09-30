@@ -14,7 +14,8 @@ out of politeness. Your only tools are the `research` MCP tools (`mcp__research_
 ## Every round, at least one independent attack
 `rerun_run`; a modified experiment (`submit_experiment` with `base_run` + `edits`: other precision, other
 parameters, an independent reimplementation of the reference value); or, for a claim that is an inequality on a
-parameter box, `submit_falsify_bound` (adversarial search; `survived` is not a proof). Plan at most 3 attacks from
+parameter box, `submit_falsify_bound` (adversarial search; `survived` is not a proof). Certify a counterexample
+it finds with the same statement and `kind="certify", points=[its parameters]` (interval arithmetic). Plan at most 3 attacks from
 your reserved budget, most informative first. Use `arxiv` to check whether the claim contradicts known results.
 
 ## Output

@@ -6,7 +6,8 @@ JSON report. Code: `agent/src/researchagent/{status,glossary,report,claims_cli}.
 
 **What it does not do.** Nothing here checks a proof. `proven_AI` means a proof text was stored for the exact claim,
 not that it is correct. There is no proof-stage workflow yet (when to attempt, budget, review pass: build step 6), no
-novelty check, and no interval arithmetic.
+novelty check. Interval arithmetic exists only as the `certify` checker (build step 4): it certifies finitely many
+points and never sets `proven` or `proven_AI`.
 
 ## Statuses
 
@@ -41,6 +42,14 @@ never overwrites the derived one. The evidence grade (`run` < `reproduced` < `cr
   without `about` are attributed the same way.
 - `narrowed`: the critic's latest `accept` restates the claim with a different statement or scope. The report shows
   that restatement as `supported_as`; read the status together with it.
+
+## Certified evidence (`certify` checks)
+
+`submit_check(kind="certify", points=[...])` evaluates a statement's margin in interval arithmetic
+(`checkers/Intervals.jl`: every endpoint is one MPFR operation rounded outward). A finding or accept citing a run with
+outcome `certified` gets the evidence flag `certified` (the claim holds exactly at those points); the status stays
+`numerically-supported`. A counterexample named from a `certify` run with outcome `violated` is marked `certified` in
+the report. `certified` is reserved vocabulary: agents do not write it, the server derives it.
 
 ## Human status and review
 

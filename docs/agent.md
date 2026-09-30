@@ -19,7 +19,7 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | Tool | Who | Does |
 |---|---|---|
 | `submit_experiment` | both | Commits agent-written Julia to the lab worktree, builds a spec, runs it in Docker, waits, returns the summary |
-| `submit_check` | both | Same for an executable statement, run through `falsify` or `highprec` |
+| `submit_check` | both | Same for an executable statement, run through `falsify`, `highprec` or `certify` (interval arithmetic at given points) |
 | `inspect_run`, `read_artifact`, `list_runs` | both | Read records: status, params, reported metrics, output files, stdout/stderr, the Julia source that ran |
 | `rerun_run`, `compare_runs` | both | Reproduce a run from its sealed spec; compare metrics of two runs (e.g. 2 precisions) |
 | `submit_falsify_bound` | both | Try to break `|error| <= bound` for the DE testbed over a parameter box, from a bound expression (no Julia to write) |
@@ -120,7 +120,8 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 
 ## What is verified and what is not
 
-Verified in the development sandbox (101 agent tests, 24 harness tests, all with fake Julia and no LLM):
+Verified in the development sandbox (106 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
+`RESEARCH_TEST_JULIA` is set, everything else with a fake Julia):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
 - Campaign logic with a scripted agent standing in for Hermes: stop on accept, round limit, ignoring an
@@ -129,6 +130,7 @@ Verified in the development sandbox (101 agent tests, 24 harness tests, all with
 - Status model: derivation, proof binding, counterexamples, revisions and stale flags, human override and append-only
   history, the glossary, the JSON report against its schema, the `research-claims` CLI, and that no MCP tool reaches
   `proven`.
+- Interval arithmetic (`checkers/test_intervals.jl`) and the `certify` checker on the real DE library and statements.
 - Evaluation: run visibility (`code.paths`), sealed `EV-` campaigns, question validation, scoring with scripted good
   and bad agents (a false proof is a critical failure), human grades and overrides, summaries, the `research-eval` CLI.
 
@@ -147,7 +149,8 @@ Verified in the development sandbox (101 agent tests, 24 harness tests, all with
 - One campaign at a time (`ledger/campaigns/CURRENT`).
 - Notes are free text: the driver reads only `status` fields, not the content.
 - The Critic's attack is checked for existence, not quality.
-- No `interval_certify`, no proof checking (`proven_AI` is stored text, not verified), no proof-stage workflow or
+- `certify` encloses a statement's margin at finitely many points (interval arithmetic); there is no certification over a
+  whole continuous box (branch and bound), no proof checking (`proven_AI` is stored text, not verified), no proof-stage workflow or
   review pass, no novelty search.
 
 ## Decisions and open items
@@ -161,4 +164,4 @@ Verified in the development sandbox (101 agent tests, 24 harness tests, all with
   `docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e JULIA_DEPOT_PATH=/tmp/depot -v "$PWD":/w -w /w julia:1.11.3 julia --project=workspace/envs/main -e 'using Pkg; Pkg.add(["QuadGK","Optim"])'`.
 - **Where the profile text lives:** the source of truth is `agent/src/researchagent/profiles/*_SOUL.md`; `research-install-profiles` overwrites `~/.hermes/profiles/<role>/SOUL.md` each time, so edit the repo copy.
 - **Budget:** failed runs are refunded from the run budget but each role may fail at most 3 runs per campaign; the critic keeps 40% of the budget in reserve.
-- **Not built:** claim links beyond `about`/`revises`, literature beyond arXiv, `interval_certify`.
+- **Not built:** claim links beyond `about`/`revises`, literature beyond arXiv, box certification (branch and bound).

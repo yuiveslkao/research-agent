@@ -230,7 +230,7 @@ def _run_paths(ctx: Ctx, commit: str, own: str) -> list[str]:
 
 def _base_spec(ctx: Ctx, *, kind: str, purpose: str, commit: str, cmd: list[str], meta: dict,
                precision_bits: int, walltime_s: int, threads: int, mem_gb: float, seed: int,
-               determinism: str, rel_tol: float | None, params: dict) -> dict:
+               determinism: str, rel_tol: float | None, params: dict, arithmetic: str = "BigFloat") -> dict:
     lo, hi = PRECISION_RANGE
     if not lo <= precision_bits <= hi:
         raise ToolError(f"precision_bits must be in [{lo}, {hi}]")
@@ -244,7 +244,7 @@ def _base_spec(ctx: Ctx, *, kind: str, purpose: str, commit: str, cmd: list[str]
         raise ToolError("determinism must be 'bitwise' or 'tolerance'")
     if determinism == "tolerance" and not rel_tol:
         raise ToolError("determinism='tolerance' needs rel_tol")
-    num = {"arithmetic": "BigFloat", "precision_bits": precision_bits, "rng": "Xoshiro",
+    num = {"arithmetic": arithmetic, "precision_bits": precision_bits, "rng": "Xoshiro",
            "seeds": [seed], "determinism": determinism, "device": "cpu"}
     if rel_tol:
         num["rel_tol"] = float(rel_tol)
@@ -346,13 +346,32 @@ def submit_experiment(ctx: Ctx, title: str, hypothesis: str, script: str = "", p
     return run_summary(ctx, run_id)
 
 
+CHECKERS = ("highprec", "falsify", "certify")
+MAX_POINTS = 50
+
+
+def _check_points(points) -> list[dict]:
+    """certify points: tables of coordinate -> integer or exact string ("1//2", "0.25")."""
+    if not isinstance(points, list) or len(points) > MAX_POINTS:
+        raise ToolError(f"points must be a list of at most {MAX_POINTS} tables like {{\"d\": \"1\", \"N\": 8}}")
+    for pt in points:
+        if not isinstance(pt, dict) or not pt or not all(
+                isinstance(k, str) and IDENT.match(k) and (isinstance(v, int) and not isinstance(v, bool)
+                                                           or isinstance(v, str) and 0 < len(v) <= 60)
+                for k, v in pt.items()):
+            raise ToolError("each point maps coordinate names to integers or exact strings such as \"1//2\" or \"0.25\"")
+    return points
+
+
 def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: str,
                  precision_bits: int = 256, evals: int = 1000, starts: int = 6, grid: int = 3,
-                 walltime_s: int = 900, seed: int = 1) -> dict:
+                 walltime_s: int = 900, seed: int = 1, points: list[dict] | None = None) -> dict:
     _require_role(ctx, {"researcher", "critic", "human"})
     _require_hypothesis(ctx)
-    if kind not in ("highprec", "falsify"):
-        raise ToolError("kind must be 'highprec' or 'falsify'")
+    if kind not in CHECKERS:
+        raise ToolError(f"kind must be one of {list(CHECKERS)}")
+    if points is not None and kind != "certify":
+        raise ToolError("`points` is only used by kind='certify'")
     if not IDENT.match(name) or not IDENT.match(module):
         raise ToolError("name and module must match [A-Za-z][A-Za-z0-9_]{0,40}")
     if not re.search(rf"^\s*module\s+{re.escape(module)}\b", statement_source, re.M):
@@ -364,7 +383,12 @@ def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: 
     rel = f"workspace/agent/statements/{name}_{tag}.jl"
     commit = ctx.lab.commit_file(rel, statement_source, f"statement {name} {kind} [{ctx.settings.role}]")
     params = {"statement": rel.removeprefix("workspace/"), "module": module}
-    params.update({"evals": evals, "starts": starts} if kind == "falsify" else {"grid": grid})
+    if kind == "falsify":
+        params.update({"evals": evals, "starts": starts})
+    elif kind == "certify" and points:
+        params.update({"points": _check_points(points), "grid": 0})     # given points only
+    else:
+        params["grid"] = grid
     meta = {"role": ctx.settings.role, "campaign": ctx.campaign["id"],
             "title": f"{kind} {name}", "hypothesis": f"statement {module} holds on its DOMAIN",
             "script": rel}
@@ -372,7 +396,8 @@ def submit_check(ctx: Ctx, kind: str, name: str, module: str, statement_source: 
         ctx, kind="check", purpose=f"{kind} check of {module}", commit=commit,
         cmd=[ctx.settings.julia_cmd, "--project=envs/main", f"../checkers/{kind}.jl"],
         meta=meta, precision_bits=precision_bits, walltime_s=walltime_s, threads=1, mem_gb=4,
-        seed=seed, determinism="bitwise", rel_tol=None, params=params)
+        seed=seed, determinism="bitwise", rel_tol=None, params=params,
+        arithmetic="Interval" if kind == "certify" else "BigFloat")
     run_id = _run(ctx, spec, tag)
     _audit(ctx, "submit_check", run_id)
     return run_summary(ctx, run_id)
@@ -614,7 +639,7 @@ def arxiv(ctx: Ctx, query: str | None = None, id: str | None = None, max_results
 
 def submit_falsify_bound(ctx: Ctx, bound: str, domain: dict | None = None, consts: dict | None = None,
                          kind: str = "falsify", precision_bits: int = 256, evals: int = 600, starts: int = 6,
-                         grid: int = 3, walltime_s: int = 900) -> dict:
+                         grid: int = 3, walltime_s: int = 900, points: list[dict] | None = None) -> dict:
     """Try to break `|DE error of I(a,b)| <= bound` over a box, without writing Julia (see templates.py)."""
     tag = _new_tag("G").replace("-", "")
     module = "GB" + tag[-10:]
@@ -623,4 +648,4 @@ def submit_falsify_bound(ctx: Ctx, bound: str, domain: dict | None = None, const
     except templates.TemplateError as e:
         raise ToolError(str(e)) from e
     return submit_check(ctx, kind, module, module, src, precision_bits=precision_bits, evals=evals,
-                        starts=starts, grid=grid, walltime_s=walltime_s)
+                        starts=starts, grid=grid, walltime_s=walltime_s, points=points)

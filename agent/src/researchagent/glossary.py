@@ -20,6 +20,11 @@ MEANING = {
     "proven": "Proof reviewed by a human (reviewer and date recorded). Only a human can set this.",
 }
 
+# Evidence flag (not a status): what a `certify` check establishes.
+CERTIFIED = ("the claim's margin was enclosed above 0 in interval arithmetic (MPFR outward rounding) at every evaluated "
+             "point: it holds exactly at those finitely many points. Not a proof over the whole scope; it never sets "
+             "proven or proven_AI. A certified counterexample is a violation enclosed below 0.")
+
 # Who may confer each status (documentation and CLI help; enforcement lives in status.py and tools.py).
 SET_BY = {
     "open": "server",

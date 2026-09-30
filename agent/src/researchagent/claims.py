@@ -126,9 +126,16 @@ def derive_evidence(ledger: Path, run_ids: list[str], author_role: str) -> dict:
         and bits.get(c["a"]) != bits.get(c["b"]) for c in checks)
     independent = any(roles.get(r) not in (None, author_role) for r in ids)
     own = sum(1 for r in ids if roles.get(r) == author_role)
-    falsify = None
+    falsify, certified = None, False
     for r in ids:
         spec = _spec(ledger, r)
+        if spec.get("kind") == "check" and str(spec["code"]["cmd"][-1]).endswith("certify.jl"):
+            try:   # margin enclosed > 0 in interval arithmetic at every evaluated point (finite, not a proof)
+                res = json.loads((ledger / "runs" / r / "result.json").read_text())
+                if (res.get("reported") or {}).get("check", {}).get("outcome") == "certified":
+                    certified = precision_checked = True
+            except (OSError, ValueError):
+                pass
         if spec.get("kind") == "check" and str(spec["code"]["cmd"][-1]).endswith("highprec.jl"):
             try:   # a passing high-precision recheck of the statement counts as a precision check
                 res = json.loads((ledger / "runs" / r / "result.json").read_text())
@@ -153,7 +160,8 @@ def derive_evidence(ledger: Path, run_ids: list[str], author_role: str) -> dict:
     else:
         grade = "none"
     return {"grade": grade, "runs": len(ids), "own_runs": own, "reproduced": reproduced,
-            "precision_checked": precision_checked, "independent": independent, "falsify": falsify}
+            "precision_checked": precision_checked, "independent": independent, "falsify": falsify,
+            "certified": certified}
 
 
 # ------------------------------------------------------------------ registry across campaigns

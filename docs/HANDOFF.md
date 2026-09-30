@@ -98,7 +98,8 @@ claim planted end-to-end.
 - The doctor prints credential FAILs for empty `.env` keys when a Hermes login is in use (partly fixed: a live turn now downgrades them).
 - Authentication is a Hermes login, possibly a Claude subscription login. Anthropic's terms restrict subscription OAuth tokens to
   Claude Code/Claude.ai. Use an API key for anything unattended.
-- The evidence grades measure effort, not truth. Numerics are BigFloat, not interval arithmetic.
+- The evidence grades measure effort, not truth. Numerics are BigFloat; interval arithmetic exists only in the `certify`
+  checker, which certifies finitely many points (build step 4).
 - Statements and checkers assume real-valued bounds; integer or combinatorial questions are unsupported by the checkers.
 - Evidence derivation counts only rerun/compare/highprec/falsify records; the Critic's freehand experiments count only as "independent".
 - Critic and Researcher use the same model, so their errors are correlated.
@@ -196,7 +197,7 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 1. **Done** (section 9). Implement the status model of section 2 (derived status, human override with append-only history, `proven` human-only, `proven_AI` only with a proof artifact) and a fixed glossary enforced by the server. Rename report wording accordingly and test that no agent tool can set `proven`.
 2. **Done** (section 9). Add the `attempt` note kind and the versioned JSON report schema.
 3. **Done** (section 9). Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
-4. (Optional, supporting only) interval-arithmetic checker and record type.
+4. **Done** (section 9). (Optional, supporting only) interval-arithmetic checker and record type.
 5. Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
    (Storage, binding and the queue exist; the workflow, structured proof format and review pass do not.)
@@ -277,3 +278,22 @@ policy, cost ceilings, proof-stage evaluation, a one-evening first version).
   from `https://conda.anaconda.org/conda-forge/linux-64/micromamba-2.9.0-0.tar.bz2`, then
   `micromamba create -p <dir> -c conda-forge julia=1.9.4`. That is not the pinned 1.11.3 and has no SpecialFunctions,
   but runs stdlib-only Julia such as `eval/verify/matrix_powers.jl` and the checkers with test statements.
+
+### Build step 4: interval-arithmetic checker and record type (same branch)
+
+- `checkers/Intervals.jl`: a package-free interval type on BigFloat; every endpoint is one MPFR call rounded outward
+  (+ - * / exp log sqrt sinh cosh tanh pow gamma), undecidable comparisons and divisions by intervals containing 0
+  throw instead of guessing. Generic statement code runs unchanged with `T = Iv`. Tests: `checkers/test_intervals.jl`
+  (enclosures at 256 bits contain the 2048-bit values).
+- `checkers/certify.jl`: evaluates `relmargin`/`margin` at given points (exact rationals) or on a grid; outcome
+  `violated` (a certified counterexample; stops at the first), `certified` (holds exactly at those finitely many points,
+  never a proof over the DOMAIN), `inconclusive` (raise precision). `DESinc.family_exact` now accepts any `Real` so the
+  library runs on intervals (no numerical change).
+- Verified on Julia 1.9.4 with the real library and statements: C0003 certified violated at d = 1, a = b = 1, N = 8
+  with relmargin enclosed in [-82.35023521786819..., -82.35023521786819...] (err/bound = 83.3502, matching mpmath);
+  C0002 certified at all 456 grid points (worst err/bound 0.0173). **Not yet run on the pinned 1.11.3**: run
+  `julia checkers/test_intervals.jl` and `rh submit specs/check_certify_C0003.toml` in the container once.
+- Record type: `submit_check(kind="certify", points=...)` and `submit_falsify_bound(kind="certify")`; runs record
+  `arithmetic = "Interval"`; a cited `certified` run sets the evidence flag `certified` (and counts as a precision check);
+  a counterexample from a `violated` certify run is marked certified in `report.json`. No status is ever set by it.
+- Tests: 106 agent tests with `RESEARCH_TEST_JULIA=/path/to/julia` (103 plus 3 skipped without), 24 harness tests.

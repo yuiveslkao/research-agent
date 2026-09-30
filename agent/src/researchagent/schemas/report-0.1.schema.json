@@ -471,6 +471,9 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "certified": {
+                      "type": "boolean"
                     }
                   }
                 }
@@ -480,6 +483,10 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "certified": {
+                "type": "boolean",
+                "description": "a supporting note cites a certify run with outcome certified (finite points, not a proof)"
               }
             }
           },

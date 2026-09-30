@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import claims as claims_mod
 from . import status as status_mod
-from .glossary import MEANING, SET_BY, STATUSES
+from .glossary import CERTIFIED, MEANING, SET_BY, STATUSES
 
 REPORT_SCHEMA = "report/0.1"
 SCHEMA_FILE = Path(__file__).parent / "schemas" / "report-0.1.schema.json"
@@ -96,7 +96,9 @@ def claim_entry(snap: status_mod.Snapshot, root: str) -> dict:
             "narrowed": d["narrowed"], "awaiting_review": v["awaiting_review"], "review_reasons": v["review_reasons"],
         },
         "supported_as": d["supported_as"],
-        "evidence": {"grade": d["grade"], "findings": [_note_entry(n) for n in d["findings"]],
+        "evidence": {"grade": d["grade"], "certified": any((n.get("evidence") or {}).get("certified")
+                                                            for n in notes if n["id"] in d["support"]),
+                     "findings": [_note_entry(n) for n in d["findings"]],
                      "critiques": [_note_entry(n) for n in d["critiques"]],
                      "counterexamples": d["counterexamples"], "runs": cited},
         "proofs": [_proof_entry(p, v["version"], v["fingerprint"]) for p in v["proofs"]],
@@ -123,7 +125,8 @@ def build_report(ledger: Path, campaign: str | None = None, meta: dict | None = 
         "schema": REPORT_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "campaign": _drop(dict(meta or {}, id=campaign)) if campaign else None,
-        "glossary": {"statuses": {s: MEANING[s] for s in STATUSES}, "set_by": SET_BY, "grades": GRADE_MEANING},
+        "glossary": {"statuses": {s: MEANING[s] for s in STATUSES}, "set_by": SET_BY, "grades": GRADE_MEANING,
+                     "certified": CERTIFIED},
         "claims": claims,
         "open_objections": reg["open_objections"],
         "attempts": [a for a in reg["failed_attempts"] if a["id"] not in linked],
@@ -161,7 +164,10 @@ def markdown_claim(c: dict, objections: list[dict] | None = None) -> list[str]:
         L.append(f"- **open objection** ({o['id']}): {o['objection']}"
                  + (f" (resolve by: {o['resolve_by']})" if o.get("resolve_by") else ""))
     for ce in c["evidence"]["counterexamples"]:
-        L.append(f"- **counterexample** ({ce['note']}, runs {', '.join(ce['run_ids']) or '-'}): {ce.get('statement')}")
+        L.append(f"- **{'certified ' if ce.get('certified') else ''}counterexample** ({ce['note']}, runs "
+                 f"{', '.join(ce['run_ids']) or '-'}): {ce.get('statement')}")
+    if c["evidence"].get("certified"):
+        L.append("- **certified at the evaluated points** (interval arithmetic; finite, not a proof)")
     for p in c["proofs"]:
         who = "the AI, not human-reviewed" if not p["author"].startswith("human:") else p["author"]
         L.append(f"- **proof** {p['id']} by {who}" + ("" if p["current"] else " (bound to an earlier version)")

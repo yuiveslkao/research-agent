@@ -25,6 +25,8 @@ def _val(v) -> str:
         return json.dumps(v, ensure_ascii=False)
     if isinstance(v, (list, tuple)):
         return "[" + ", ".join(_val(x) for x in v) + "]"
+    if isinstance(v, dict):                                   # inline table (inside arrays)
+        return "{" + ", ".join(f"{_key(k)} = {_val(x)}" for k, x in v.items()) + "}"
     raise TypeError(f"unsupported TOML value: {type(v).__name__}")
 
 

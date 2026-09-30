@@ -85,6 +85,7 @@ Verified in the development sandbox:
 
 ## Deferred (add only when Phase 0 shows the need)
 
-Claims/links/notes store and MCP server, review packets, `interval_certify`, `crossimpl`,
+Claims/links/notes store and MCP server, review packets, `interval_certify` (point certification exists since build
+step 4: `checkers/certify.jl`; box certification does not), `crossimpl`,
 `fit_robustness`, GPU runs, TSUBAME executor (needs an offline environment `prepare` step and a portable
 `JULIA_CPU_TARGET`), and the point-configuration and conformal-map benchmarks.

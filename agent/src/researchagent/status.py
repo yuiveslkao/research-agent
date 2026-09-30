@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import secrets
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -137,6 +138,7 @@ class Snapshot:
             if (n["kind"] == "finding" and c.get("result") == "refutes") or c.get("counterexample"):
                 runs = [c["counterexample"]] if c.get("counterexample") else list(n.get("run_ids") or [])
                 counter.append({"note": n["id"], "role": n["role"], "run_ids": runs, "named": bool(c.get("counterexample")),
+                                "certified": bool(c.get("counterexample")) and self._certified_violation(c["counterexample"]),
                                 "statement": c.get("statement") or c.get("objection")})
         support = [n for n in findings if n["claim"].get("result") == "supports" and n.get("run_ids")]
         support += [n for n in critiques if n.get("status") == "accept"]
@@ -169,6 +171,16 @@ class Snapshot:
             "open_objections": [n["id"] for n in after if n.get("status") == "challenge"],
             "findings": findings, "critiques": critiques,
         }
+
+    def _certified_violation(self, run_id: str) -> bool:
+        """The run is a `certify` check that found a violation (an interval-arithmetic counterexample)."""
+        try:
+            d = self.ledger / "runs" / run_id
+            cmd = (tomllib.loads((d / "spec.toml").read_text()).get("code") or {}).get("cmd") or [""]
+            outcome = ((json.loads((d / "result.json").read_text()).get("reported") or {}).get("check") or {}).get("outcome")
+        except (OSError, ValueError):
+            return False
+        return str(cmd[-1]).endswith("certify.jl") and outcome == "violated"
 
     # ---- human status and history
     def records(self, root: str) -> list[dict]:

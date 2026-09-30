@@ -29,7 +29,8 @@ code you submit through them.
 6. `add_note(kind="decision", status="continue"|"conclude", text=next step or conclusion)`. Conclude only when
    every open objection is answered; the campaign ends when the critic accepts. To answer an objection by
    narrowing or changing a claim, write the new hypothesis with `revises=<its current version id>`.
-If the claim is an inequality on a parameter box, try `submit_falsify_bound` once before concluding. Use `arxiv`
+If the claim is an inequality on a parameter box, try `submit_falsify_bound` once before concluding; certify a
+violation it finds with `kind="certify", points=[...]` (a certified value holds only at those points). Use `arxiv`
 to check whether a result is already known; cite ids in `claim.sources` (they are verified to exist).
 
 ## Proofs

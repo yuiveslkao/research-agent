@@ -36,24 +36,34 @@ The system should automate that whole classification and never blur the classes.
 | 5 report | proved results to the human | campaign `report.md` with claims, scope, limits, server-derived evidence grade |
 | classification | proven / numerically supported / incorrect | only evidence grades (run < reproduced < cross-checked < falsification-tested) and `result: supports/refutes/…`. No proven class |
 
-## 2. Rigor requirements the new system must satisfy (owner to confirm)
+## 2. Rigor requirements (decided by the owner)
 
-Proposed status taxonomy. The server assigns it from artifacts. **No LLM output may set a status by assertion.**
+Status taxonomy. `derived` = the server computes it from artifacts. `AI-set` = the AI may set it through a tool that
+requires an artifact. `human-only` = only the human may set it.
 
-| Status | Meaning | Required artifact |
-|---|---|---|
-| `refuted` | claim is false | counterexample, ideally re-verified with interval arithmetic or exact arithmetic |
-| `numerically-supported` | no counterexample found, evidence in scope | current grades, scope and limits stated |
-| `certified` | true on a finite region/case set, computer-assisted | interval-arithmetic (Arb / IntervalArithmetic.jl) or exhaustive exact enumeration record |
-| `cited` | equals a published theorem | verified source id and theorem number, statement compared |
-| `proof-drafted` | an informal proof exists | text only; **unverified**; never reported as proved |
-| `proof-reviewed` | informal proof checked by a human | reviewer id and date |
-| `machine-checked` | formal proof accepted by a proof assistant | Lean (or similar) file that compiles with pinned toolchain, statement matches the claim |
+| Status | Meaning | Who sets it | Required artifact |
+|---|---|---|---|
+| `open` | no conclusion yet | server | none |
+| `refuted` | a counterexample exists | derived, or human | the counterexample; the search stops at the first one found |
+| `numerically-supported` | no counterexample found, evidence in scope | derived | run records, scope and limits (today's grades) |
+| `proven_AI` | proved by the AI (Claude) | AI-set | the full written proof, stored as an artifact and bound to the exact claim |
+| `proven` | proof reviewed by a human | **human-only** | the reviewed proof plus reviewer id and date |
 
-Decisions the owner still has to make:
-- What is the minimum bar for the word **"proven"**: machine-checked only, or human-reviewed informal proofs too?
-- Is a **certified finite** result (e.g. an inequality on a compact box by interval arithmetic) reportable as proven for that scope? (Recommendation: yes, labeled `certified`, distinct from a general proof.)
-- Acceptable false-positive rate for "proven": recommendation is zero tolerance; any wrong `proven` counts as a system failure.
+Rules:
+- **`proven` may only be set by a human.** The AI and the server cannot set or infer it. `proven_AI` is *not* a verified
+  status: reports must show it as "proved by the AI, not human-reviewed".
+- **The human may override any status at any time** (for example after finding a counterexample or a proof by hand).
+  The system must keep the server/AI-derived status and the human status side by side, never overwrite the derived one,
+  and record every change in an append-only history with actor, timestamp and reason. The effective status is the human's if set.
+  A later change to the claim text or scope should flag a human-set status as "possibly stale", not silently keep it.
+- **The proof is written by the LLM itself** (Claude is expected). The model must *develop* the mathematical argument, as in the
+  editorial-style solution the owner supplied for the matrix-counting golden question: reformulation, necessity/sufficiency,
+  counting, closed form. Computer-assisted proofs (interval arithmetic, exhaustive enumeration, Lean checks) are allowed only as
+  supporting tools inside or next to that argument, never as a replacement for it.
+- A finite computer-assisted result may be recorded as evidence (`certified` may appear as a supporting *artifact type*), but it
+  does not by itself set `proven` or `proven_AI` for a general claim.
+- Recommendation (not a requirement): before setting `proven_AI`, run a separate review pass over the proof (a second turn,
+  ideally a different prompt) and store its objections next to the proof. The owner said correlated errors are not a concern for now.
 
 ## 3. Current implementation (facts)
 
@@ -102,8 +112,11 @@ Research scope (Tanaka-style numerical analysis): (1) sampling/discretization wi
 ## 5. Missing specifications (requirements to settle)
 
 ### 5.1 Question types and intake
-- Two families are already named: **quantification** ("what is the error/rate?") and **existence** ("does a formula exist?").
-  Existence questions need constructive search *and* a way to argue impossibility. Neither exists.
+- Typical questions: quantification ("what is the error/rate of this method?"), comparison, and "find a formula/point
+  configuration with property P". Pure existence questions are rare and the owner does not want an impossibility-proving
+  method now. Instead the system should log **attempts as first-class records**: "tried X, it failed because Y",
+  so that negative results are kept and not retried. This needs a note kind (for example `attempt`) with outcome and reason,
+  included in the cross-campaign registry and the report.
 - Question format: free text vs structured (objective, scope, allowed methods, budget, deliverable).
 - Decomposition into several hypotheses and a hypothesis lifecycle (proposed, testing, falsified, surviving, proof attempt,
   proved/unprovable, reported), with persistence across campaigns (a cross-campaign registry exists, without lifecycle states).
@@ -117,23 +130,25 @@ Research scope (Tanaka-style numerical analysis): (1) sampling/discretization wi
 ### 5.3 Falsification (stage 3)
 - Standard search budgets and strategies (grid, multi-start, adversarial, randomized), and what must be recorded so that
   "survived" means something specific.
-- When a counterexample must be *certified* (interval/exact re-evaluation) before a claim is marked `refuted`.
-- Whether a different model family should play the Critic to decorrelate errors.
+- Decided: stop as soon as a counterexample is found; no certification step is required before `refuted`.
+- Decided: correlated errors between Researcher and Critic are not a concern for now.
 
-### 5.4 Proof stage (stage 4, entirely unspecified)
-- Who proves: an LLM drafting informal proofs, a proof assistant, or literature lookup? Budget and stop rule per hypothesis.
-- Verification path for each status in the taxonomy above; how a proof is bound to the exact claim (statement fidelity check
-  between the informal claim, the Lean statement, and the computed statement).
-- Formalization gaps: Mathlib coverage for complex analysis, Sinc/DE theory, conformal maps is limited. Decide whether
-  computer-assisted proofs (interval arithmetic, Arb, validated numerics) are the realistic route for most results.
-- What happens when a proof attempt fails: report as conjecture with evidence and the failed lines of attack.
-- Independent proof review (human reviewer or second model plus checker).
+### 5.4 Proof stage (stage 4, entirely unbuilt)
+- Decided: the LLM (Claude) writes the proof itself; computer assistance is supporting only (section 2).
+- Still to design: when a proof attempt starts (which hypotheses, after which falsification effort), the budget and stop rule,
+  the proof artifact format (structured steps with each lemma and its dependencies, plus the exact statement proved), how
+  the proof is bound to the claim (statement fidelity), and how the human review is requested and recorded.
+- Failure path: an unproved survivor is reported as `numerically-supported` with the failed lines of attack logged as attempts.
+- Which parts of a proof can be spot-checked by computation (small cases, identities) and how that is recorded, without promoting the status.
+- Formal proof (Lean) is out of scope for now.
 
 ### 5.5 Reporting and novelty (stage 5)
-- Report format for the human: claim, status, scope, limits, artifacts, reproduction command, proof or certificate, citations.
+- Report format: **structured JSON** (the owner will feed it into an LLM later). Define and version a schema: claim, scope,
+  limits, derived status, human status and history, evidence (run ids, checks), proof artifact reference, attempts, citations,
+  reproduction commands. The Markdown report can remain as a derived view.
 - **Novelty check**: is the result already in the literature? Currently only source verification exists, no novelty search.
 - What is "worth reporting": thresholds for interest, and whether negative or unproved results are reported.
-- Notifications and review loop: how the owner accepts, rejects, or overrides a status, and how that feeds back.
+- Human interface for status: a command/API to set any status with a reason (section 2), plus a queue of `proven_AI` items awaiting review.
 
 ### 5.6 Numerical rigor
 - Policy on floating point vs BigFloat vs interval arithmetic; required precision margins; treatment of the precision floor.
@@ -146,18 +161,17 @@ Research scope (Tanaka-style numerical analysis): (1) sampling/discretization wi
 - Guard against evidence inflation and vocabulary drift ("established", "proved"): a fixed glossary enforced by the server.
 - Auditability: every reported claim traceable to run records; retention and backup of the ledger.
 
-### 5.8 Evaluation
-- Golden questions (owner will write; template in `docs/golden_questions.md`). The set must now include *proof-stage* items:
-  provable statements, false statements that look plausible, subtly wrong proofs, and statements where the right output is
-  "cannot prove, here is the evidence". Metric priority: wrong-"proven" rate (target 0), then wrong-`refuted`, then cost.
-- Regression protocol: run the set after every model, prompt, tool, or budget change and store results with model, SOUL.md commit, tokens, wall time.
-- Guard against overfitting prompts to the golden set (hold out some questions).
-- One candidate mixed-verification question is worked out: count `a(N)` of N×N 0/1 matrices with all powers bounded; brute force
-  gives 2, 11, 148, 4647 for N = 1–4 and the editorial formula matches. Only the equivalence proof and the O(N log N) claim
-  are beyond computation.
+### 5.8 Evaluation (deliberately unspecified: the successor must design it)
+The owner asked the new AI to explore and design the evaluation, including the golden questions, rather than fixing it now.
+The design should cover: what to measure (accuracy of statuses, false `proven_AI` claims, missed counterexamples, proof
+correctness, cost/tokens), the question set and its task-type mix, scoring (automatic vs human), regression protocol after every
+model/prompt/tool change, hold-out policy against overfitting, and cost ceilings. The owner will supply some golden questions later. Use `docs/golden_questions.md` and `docs/golden_question_prompt.md` as starting points.
+One question is already worked out: count `a(N)` of N×N 0/1 matrices with all powers bounded. Brute force gives 2, 11, 148, 4647
+for N = 1–4 and the editorial formula matches; the equivalence proof and the O(N log N) claim are the parts that need a real proof.
+It suits the proof stage: the agent must derive the argument, and a human reviews it.
 
 ### 5.9 Cost, models, compute
-- Model per role, token ceilings per stage (proof search will dominate), caching policy, budget enforcement per question.
+- Model per role (Claude expected for proofs), token ceilings per stage (proof search will dominate), caching policy, budget enforcement per question. Unattended operation is not a requirement now.
 - Long-running jobs beyond the 30-minute cap, job queue, resume after interruption, TSUBAME/GPU path, and how results from the
   cluster enter the ledger with the same seal.
 - Whether an API key (metered) replaces the current login for unattended work.
@@ -174,22 +188,21 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 (integer problems in real-valued checkers), read-only run directories breaking git on WSL2 (files sealed, dirs writable).
 
 ## 7. Suggested build order for the successor
-1. Confirm the rigor taxonomy and the "proven" bar with the owner (section 2). Write the glossary and enforce it in the server.
-2. Add the `status` field, derived from artifacts only; rename report wording accordingly; add tests that an agent cannot assert a status.
-3. Golden questions (owner) plus a scoring runner (`research-golden`), including proof-stage traps.
-4. Certified numerics: interval-arithmetic checker and record type.
+1. Implement the status model of section 2 (derived status, human override with append-only history, `proven` human-only, `proven_AI` only with a proof artifact) and a fixed glossary enforced by the server. Rename report wording accordingly and test that no agent tool can set `proven`.
+2. Add the `attempt` note kind and the versioned JSON report schema.
+3. Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
+4. (Optional, supporting only) interval-arithmetic checker and record type.
 5. Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
-6. Proof stage: start with literature/cited theorems and computer-assisted proofs; consider Lean only after measuring feasibility.
+6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
 7. Novelty search and human review loop.
 8. Compute expansion (TSUBAME, GPU) only when a real question needs it.
 
-## 8. Questions to put to the owner before building
-1. What exactly counts as "proven" (machine-checked only, or human-reviewed proofs)?
-2. Are certified finite-scope results reportable as proven-in-scope?
-3. Which proof route is expected: LLM-written informal proofs, Lean, literature, computer-assisted, or a mix?
-4. Autonomy and budget: one question at a time with review, or unattended batches? Monthly cost ceiling?
-5. Required novelty standard before reporting a result.
-6. Should the Critic be a different model family?
-7. Are questions structured or free text, and how are existence questions posed and judged?
-8. When is TSUBAME/GPU needed?
-9. The owner's golden questions and the hold-out policy.
+## 8. Owner answers so far, and what remains
+
+Decided: `proven_AI` (AI-proved) and `proven` (human-reviewed, human-only) as separate statuses; the human may change any status
+freely; the LLM writes proofs, computer assistance is supporting only; no impossibility method; falsification stops at the first
+counterexample; correlated errors ignored; unattended operation ignored; report format is structured JSON; evaluation and golden
+questions are to be designed by the successor.
+
+Still open for the owner: novelty standard before reporting; monthly cost ceiling and API key vs login; when TSUBAME/GPU is
+needed; whether questions are structured or free text; the owner's own golden questions.

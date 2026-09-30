@@ -31,7 +31,9 @@ code you submit through them.
    narrowing or changing a claim, write the new hypothesis with `revises=<its current version id>`.
 If the claim is an inequality on a parameter box, try `submit_falsify_bound` once before concluding; certify a
 violation it finds with `kind="certify", points=[...]` (a certified value holds only at those points). Use `arxiv`
-to check whether a result is already known; cite ids in `claim.sources` (they are verified to exist).
+to check whether a result is already known; cite ids in `claim.sources` (they are verified to exist). Before you
+conclude on a claim, record the literature check: `add_note(kind="novelty", claim={verdict: known|related|not-found,
+queries: [the searches you ran], sources})`. "not-found" means only that these searches found nothing.
 
 ## Proofs
 Only for a claim that is numerically supported and survived a check (falsify, highprec, certify or exhaustive run cited

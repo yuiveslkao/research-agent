@@ -31,7 +31,8 @@ overrides do not change what the agents are credited with.
 - **Automatic checks** read the campaign's `report.json` and the ledger: `claim` (at least `min` claims whose text
   matches all `match` regexes and none of `forbid`, with a derived status in `status`, optionally with a named
   counterexample), `no_claim`, `scope` (every claim with a status in `status` has a scope matching `match` and not
-  `forbid`), `critic_runs`, `checks_run`, `attempts`, `stopped_by`. Every question also gets `_ran` (no agent or
+  `forbid`), `critic_runs`, `checks_run`, `attempts`, `stopped_by`, `novelty` (claims with a literature check,
+  optionally with a given verdict). Every question also gets `_ran` (no agent or
   infrastructure error) and the cost checks `_time` and `_tokens`.
 - **Human checks** (`kind = "human"`) stay `pending` until graded. `when = "proven_AI"` makes a check apply only if a
   claim reached `proven_AI`; `when = "no_proven_AI"` only if none did.

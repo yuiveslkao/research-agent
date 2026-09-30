@@ -8,10 +8,10 @@ from pathlib import Path
 
 from .claims import MAX_TEXT_WITH_CLAIM, ClaimError, validate_claim
 
-KINDS = {"question", "hypothesis", "finding", "decision", "critique", "attempt"}
+KINDS = {"question", "hypothesis", "finding", "decision", "critique", "attempt", "novelty"}
 ROLE_KINDS = {
-    "researcher": {"question", "hypothesis", "finding", "decision", "attempt"},
-    "critic": {"critique", "attempt"},
+    "researcher": {"question", "hypothesis", "finding", "decision", "attempt", "novelty"},
+    "critic": {"critique", "attempt", "novelty"},
     "driver": {"question"},
     "human": set(KINDS),
 }

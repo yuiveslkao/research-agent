@@ -83,6 +83,21 @@ research-claims report [--campaign C] [--out report.json] [--md]
 Claims from evaluation campaigns (`EV-...`) are left out of `list`, `queue` and the whole-ledger report unless
 asked for by campaign (`--campaign EV-...`); their proofs are graded with `research-eval grade` (see evaluation.md).
 
+## Novelty search and the human review loop (build step 7)
+
+- The `arxiv` tool logs every search (`ledger/searches.jsonl`: campaign, role, query, result ids).
+- `add_note(kind="novelty", claim={verdict: known|related|not-found, queries, sources?, explanation?})` records the
+  literature check of a claim (researcher or critic). Every listed query must be a search actually run in this
+  campaign; `known`/`related` need `sources`, which are verified on arXiv. `not-found` only means these searches found
+  nothing. Novelty notes may say what a paper proves (exempt from the reserved words).
+- The latest check is shown per claim: `read_claims` (`novelty`), the campaign seed (`known: <ids>`), `report.json`
+  (`novelty`: verdict, queries, sources with titles, explanation), the Markdown view ("not checked" when missing), and
+  `research-claims queue` (`novelty`: unchecked | not-found | related | known).
+- **Not decided (owner):** the novelty standard before reporting (which searches suffice, whether a report needs
+  `not-found`). Nothing is gated on novelty yet; the evaluation can require it with the `novelty` check kind.
+- **Human review loop:** the reason of a human status is shown to the agents (`read_claims` field `human_reason`,
+  campaign seed `human: ...`), so a verdict such as "the proof skips the case a = b in L1" reaches the next campaign.
+
 ## History
 
 `ledger/status/history.jsonl`, append-only, one record per change:

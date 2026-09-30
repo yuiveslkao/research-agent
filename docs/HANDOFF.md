@@ -201,7 +201,7 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 4. **Done** (section 9). (Optional, supporting only) interval-arithmetic checker and record type.
 5. **Done** (section 9). Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. **Done** (section 9). Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
-7. Novelty search and human review loop.
+7. **Done** (section 9; the novelty *standard* is still the owner's). Novelty search and human review loop.
 8. Compute expansion (TSUBAME, GPU) only when a real question needs it.
 
 ## 8. Owner answers so far, and what remains
@@ -338,3 +338,14 @@ Details and the defaults chosen for HANDOFF 5.4: [status.md](status.md#proof-sta
 - Tests: 125 agent tests with `RESEARCH_TEST_JULIA` (120 plus 5 skipped without), 24 harness tests.
 - Not decided by the owner yet and implemented as defaults: the start rule, the limit of 3, and making the review pass
   required. All three are constants or single rules in `proofs.py`.
+
+### Build step 7: novelty search and human review loop (same branch)
+
+- `novelty` notes record the literature check of a claim: verdict known / related / not-found, the arXiv queries
+  (each must be a search actually run in the campaign; the `arxiv` tool now logs searches), and verified sources.
+  Shown in `read_claims`, the campaign seed, `report.json`, the Markdown view and the review queue. Evaluation check
+  kind `novelty`.
+- Human review loop: the reason behind a human status is shown to the agents (`read_claims`, the next campaign's
+  seed), so review verdicts feed back into research.
+- Not done, owner decision: the novelty standard before reporting; nothing is gated on novelty.
+- Tests: 128 agent tests with `RESEARCH_TEST_JULIA` (123 plus 5 skipped without), 24 harness tests.

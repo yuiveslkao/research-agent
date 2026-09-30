@@ -27,7 +27,7 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | `read_claims` | both | Claims across all campaigns with their status, grade, critic verdict, counterexample; open objections; failed attempts |
 | `submit_proof` | researcher | Store a structured proof (steps with dependencies) bound to a claim's exact text; allowed after the claim survived a check |
 | `read_proof`, `review_proof` | both / critic | Read a proof with its reviews; the critic's review pass (accept, or object naming a step). Only an accepted proof makes the status `proven_AI` |
-| `arxiv` | both | Search arXiv or look one paper up by id (short records, cached, untrusted text) |
+| `arxiv` | both | Search arXiv or look one paper up by id (short records, cached, untrusted text); searches are logged for novelty notes |
 
 Loop: **hypothesis -> experiment -> inspect -> finding -> decision(continue|conclude) -> critic attack -> critique(accept|challenge)**.
 The campaign ends when the last decision is `conclude` and the last critique is `accept`, **and** the critic
@@ -47,6 +47,7 @@ Every hypothesis, finding and critique carries a short structured `claim` instea
 | critique accept | `statement`, `scope`, optional `limits` (the strongest claim actually supported), `about` |
 | critique challenge | `objection`, optional `resolve_by`, `about`, `counterexample` |
 | attempt | `approach`, `stage` (explore/falsify/prove/literature), `outcome` (failed/inconclusive/abandoned), `reason`, optional `about` |
+| novelty | `verdict` (known/related/not-found), `queries` (arXiv searches actually run), optional `sources`, `explanation`, `about` |
 
 Each hypothesis is a **claim** (versions linked by `revises`) with a status derived by the server: `open`, `refuted`
 (a named counterexample run), `numerically-supported` (a supporting finding or critic accept citing runs; not a proof),
@@ -121,7 +122,7 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 
 ## What is verified and what is not
 
-Verified in the development sandbox (125 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
+Verified in the development sandbox (128 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
 `RESEARCH_TEST_JULIA` is set, everything else with a fake Julia):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
@@ -135,6 +136,7 @@ Verified in the development sandbox (125 agent tests, 24 harness tests, no LLM; 
 - The exact toolkit (`workspace/library/test_exact.jl`) and the `exhaustive` checker on exact statements.
 - Proof stage: step validation, the start rule, attempt limits, the review pass, integrity of proof records, and that
   a campaign does not end while a proof awaits review.
+- Novelty notes (only searches that ran), novelty in claims, report and queue; human reasons shown to the agents.
 - Evaluation: run visibility (`code.paths`), sealed `EV-` campaigns, question validation, scoring with scripted good
   and bad agents (a false proof is a critical failure), human grades and overrides, summaries, the `research-eval` CLI.
 

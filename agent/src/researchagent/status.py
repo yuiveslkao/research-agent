@@ -68,7 +68,7 @@ def _append(ledger: Path, rec: dict) -> dict:
 def default_about(prior: list[dict], kind: str, role: str) -> str | None:
     """The version a note is about when it does not say: a researcher's latest hypothesis; for the critic, what the
     researcher's latest finding was about (else the latest researcher hypothesis). `prior` = earlier campaign notes."""
-    if kind in ("critique", "attempt") and role != "researcher":
+    if kind in ("critique", "attempt", "novelty") and role != "researcher":
         f = next((n for n in reversed(prior) if n["kind"] == "finding" and n["role"] == "researcher"
                   and (n.get("claim") or {}).get("about")), None)
         if f:
@@ -98,7 +98,7 @@ class Snapshot:
         by_campaign: dict[str, list[dict]] = {}
         for n in self.notes:
             prior = by_campaign.setdefault(n["campaign"], [])
-            if n["kind"] in ("finding", "critique", "attempt"):
+            if n["kind"] in ("finding", "critique", "attempt", "novelty"):
                 a = (n.get("claim") or {}).get("about")
                 a = a if a in self.hyps else default_about(prior, n["kind"], n["role"])   # old notes lack `about`
                 if a:
@@ -244,9 +244,22 @@ class Snapshot:
             "stale": stale, "derived_changed": changed, "awaiting_review": bool(why), "review_reasons": why,
             "meaning": MEANING[effective],
             "attempts": [n for x in versions for n in self.notes_about(x) if n["kind"] == "attempt"],
+            "novelty": self.novelty(versions),
             "proofs": [p for p in self.proofs if p["claim"] == root],
             "history": self.records(root),
         }
+
+    def novelty(self, versions: list[str]) -> dict | None:
+        """The latest literature check (novelty note) about any version of the claim."""
+        ns = [n for x in versions for n in self.notes_about(x) if n["kind"] == "novelty" and n.get("claim")]
+        if not ns:
+            return None
+        n = max(ns, key=lambda x: x["created"])
+        c = n["claim"]
+        return {"note": n["id"], "version": self.about_of.get(n["id"]), "campaign": n["campaign"], "role": n["role"],
+                "verdict": c["verdict"], "queries": c["queries"], "sources": c.get("sources", []),
+                "titles": [s["title"] for s in (n.get("evidence") or {}).get("sources", [])],
+                "explanation": c.get("explanation")}
 
     def claim_ids(self, campaign: str | None = None, include_eval: bool = False) -> list[str]:
         """Claims touched by `campaign`, or all claims; evaluation (EV-) claims only when asked for."""
@@ -346,5 +359,6 @@ def review_queue(ledger: Path) -> list[dict]:
         if v["awaiting_review"]:
             out.append({"claim": root, "statement": v["statement"], "effective": v["effective"],
                         "derived": v["derived"]["status"], "why": v["review_reasons"],
-                        "proofs": v["derived"]["proofs"]})
+                        "proofs": v["derived"]["proofs"],
+                        "novelty": (v["novelty"] or {}).get("verdict", "unchecked")})
     return out

@@ -73,7 +73,7 @@ def check(field: str, text: str) -> None:
 
 def check_note(kind: str, claim: dict | None, text: str, status: str | None = None) -> None:
     """Server-side vocabulary rule for agent-written notes. A challenge argues against a claim, so its text is exempt."""
-    if kind in ("attempt", "question"):
+    if kind in ("attempt", "question", "novelty"):          # novelty notes may say what a paper proves
         return
     for f in ASSERTION_FIELDS:
         if claim and isinstance(claim.get(f), str):

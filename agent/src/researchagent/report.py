@@ -110,6 +110,7 @@ def claim_entry(snap: status_mod.Snapshot, root: str) -> dict:
                      "counterexamples": d["counterexamples"], "runs": cited},
         "proofs": [_proof_entry(snap, p, v["version"], v["fingerprint"]) for p in v["proofs"]],
         "attempts": [claims_mod.compact_attempt(n, root) for n in v["attempts"]],
+        "novelty": v["novelty"],
         "citations": list(cites.values()),
         "history": v["history"],
         "reproduce": [f"rh rerun {r}" for r in cited],
@@ -188,6 +189,13 @@ def markdown_claim(c: dict, objections: list[dict] | None = None) -> list[str]:
             L += [f"  - review [{o['severity']}] {o['step']}: {o['issue']}" for o in r["objections"]]
     for a in c["attempts"]:
         L.append(f"- **tried, {a['outcome']}** ({a['stage']}): {a['approach']}; {a['reason']}")
+    nv = c.get("novelty")
+    if nv:
+        found = "; ".join(f"{i} {t}" for i, t in zip(nv["sources"], nv["titles"] + [""] * len(nv["sources"]))) or "-"
+        L.append(f"- **novelty ({nv['verdict']})**: arXiv searched for {'; '.join(repr(q) for q in nv['queries'])}; "
+                 f"sources: {found}" + (f". {nv['explanation']}" if nv.get("explanation") else ""))
+    else:
+        L.append("- **novelty**: not checked (no literature search recorded)")
     if c["reproduce"]:
         L.append(f"- **reproduce:** {'; '.join(f'`{x}`' for x in c['reproduce'][:6])}"
                  + (" ..." if len(c["reproduce"]) > 6 else ""))

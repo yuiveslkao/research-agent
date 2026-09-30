@@ -80,7 +80,8 @@
           "attempts",
           "citations",
           "history",
-          "reproduce"
+          "reproduce",
+          "novelty"
         ],
         "properties": {
           "id": {
@@ -765,6 +766,71 @@
             "items": {
               "type": "string"
             }
+          },
+          "novelty": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "note",
+                  "verdict",
+                  "queries",
+                  "sources"
+                ],
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "campaign": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "verdict": {
+                    "enum": [
+                      "known",
+                      "related",
+                      "not-found"
+                    ]
+                  },
+                  "queries": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "titles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "explanation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "latest literature check (arXiv searches actually run); not-found is not proof of novelty"
           }
         }
       }

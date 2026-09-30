@@ -36,7 +36,7 @@ QUESTION_TYPES = {"rate-estimation", "planted-flaw", "refute-false-statement", "
                   "point-configuration", "conformal-map", "proof-required", "mixed-verification", "out-of-scope"}
 SPLITS = {"dev", "holdout"}
 VERIFICATION = {"verified", "partly-verified", "campaign", "unverified"}
-CHECK_KINDS = {"claim", "no_claim", "scope", "critic_runs", "checks_run", "attempts", "stopped_by", "human"}
+CHECK_KINDS = {"claim", "no_claim", "scope", "critic_runs", "checks_run", "attempts", "stopped_by", "human", "novelty"}
 WHEN = {"always", "proven_AI", "no_proven_AI"}
 PROVEN = {"proven_AI", "proven"}
 
@@ -208,6 +208,10 @@ def evaluate_check(c: dict, rep: dict, ledger: Path, cid: str) -> tuple[str, str
         atts = [a for x in claims for a in x["attempts"]] + rep.get("attempts", [])
         atts = [a for a in atts if not c.get("stage") or a["stage"] == c["stage"]]
         return ("pass" if len(atts) >= c.get("min", 1) else "fail"), f"{len(atts)} attempt(s)"
+    if kind == "novelty":                    # claims (with a status in `status`, if given) that had a literature check
+        hits = [x for x in claims if x.get("novelty") and (not want or status(x) in want)
+                and (not c.get("verdict") or x["novelty"]["verdict"] in c["verdict"])]
+        return ("pass" if len(hits) >= c.get("min", 1) else "fail"), f"{len(hits)} claim(s) with a novelty check"
     if kind == "stopped_by":
         got = (rep.get("campaign") or {}).get("stopped_by")
         return ("pass" if got in c.get("values", []) else "fail"), f"stopped_by={got}"

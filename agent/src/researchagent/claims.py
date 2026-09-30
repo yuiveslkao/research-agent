@@ -21,13 +21,15 @@ FIELDS = {  # kind[/status] -> (required, optional), all string fields unless no
     "critique/accept": (("statement", "scope"), ("limits", "sources", "about")),
     "critique/challenge": (("objection",), ("resolve_by", "sources", "about", "counterexample")),
     "attempt": (("approach", "stage", "outcome", "reason"), ("about", "sources")),
+    "novelty": (("verdict", "queries"), ("about", "sources", "explanation")),
 }
 MAXLEN = {"statement": 400, "scope": 300, "refuted_if": 300, "limits": 300, "objection": 500, "resolve_by": 300,
           "result": 20, "about": 60, "revises": 60, "counterexample": 40, "approach": 300, "stage": 20,
-          "outcome": 20, "reason": 400}
+          "outcome": 20, "reason": 400, "verdict": 20, "explanation": 600}
 RESULTS = {"supports", "refutes", "inconclusive"}
 STAGES = {"explore", "falsify", "prove", "literature"}
 OUTCOMES = {"failed", "inconclusive", "abandoned"}     # an attempt never records a success; that is a finding or proof
+VERDICTS = {"known", "related", "not-found"}           # novelty: is the claim in the literature (arXiv searches run)?
 MAX_TEXT_WITH_CLAIM = 800
 GRADES = status_mod.GRADES
 
@@ -43,8 +45,8 @@ def _key(kind: str, status: str | None) -> str | None:
         return "finding"
     if kind == "critique":
         return f"critique/{status}"
-    if kind == "attempt":
-        return "attempt"
+    if kind in ("attempt", "novelty"):
+        return kind
     return None
 
 
@@ -68,13 +70,22 @@ def validate_claim(kind: str, status: str | None, claim: dict | None) -> dict | 
     out: dict = {}
     for f in req:
         v = claim.get(f)
-        if not isinstance(v, str) or not v.strip():
+        if f == "queries":
+            if not v:
+                raise ClaimError("claim.queries is required (the arXiv searches you ran)")
+        elif not isinstance(v, str) or not v.strip():
             raise ClaimError(f"claim.{f} is required (non-empty string)")
     for f, v in claim.items():
         if f == "sources":
             if not isinstance(v, list) or not all(isinstance(s, str) for s in v) or len(v) > 5:
                 raise ClaimError("claim.sources must be a list of at most 5 arXiv ids")
             out[f] = [s.strip() for s in v]
+            continue
+        if f == "queries":
+            if not isinstance(v, list) or not 1 <= len(v) <= 10 or not all(isinstance(s, str) and 0 < len(s.strip()) <= 200
+                                                                         for s in v):
+                raise ClaimError("claim.queries must list 1..10 arXiv search queries you ran")
+            out[f] = [" ".join(s.split()) for s in v]
             continue
         if not isinstance(v, str):
             raise ClaimError(f"claim.{f} must be a string")
@@ -86,6 +97,11 @@ def validate_claim(kind: str, status: str | None, claim: dict | None) -> dict | 
     if key == "finding" and (out["result"] == "refutes") != bool(out.get("counterexample")):
         raise ClaimError("result=refutes needs claim.counterexample = the run id (from run_ids) that shows the "
                          "violation, with the parameters in `statement`; other results take no counterexample")
+    if key == "novelty":
+        if out["verdict"] not in VERDICTS:
+            raise ClaimError(f"claim.verdict must be one of {sorted(VERDICTS)}")
+        if out["verdict"] != "not-found" and not out.get("sources"):
+            raise ClaimError("a known or related verdict needs claim.sources (the arXiv ids)")
     if key == "attempt":
         if out["stage"] not in STAGES:
             raise ClaimError(f"claim.stage must be one of {sorted(STAGES)}")
@@ -195,6 +211,11 @@ def compact_claim(v: dict) -> dict:
     for flag in ("stale", "derived_changed"):
         if v[flag]:
             out[flag] = True
+    if v["human"]:
+        out["human_reason"] = v["human"].get("reason", "")[:200]      # the human's verdict, fed back to the agents
+    nv = v.get("novelty")
+    if nv:
+        out["novelty"] = {k: nv[k] for k in ("verdict", "sources") if nv.get(k)}
     if d["conflict"]:
         out["conflict"] = d["conflict"]
     return {k: x for k, x in out.items() if x not in (None, "", [])}
@@ -252,6 +273,10 @@ def brief(ledger: Path, limit: int = 6, max_chars: int = 2200, exclude_campaign:
                 line += " | supported only as: " + " | ".join(str(x) for x in r["supported_as"].values())
             if st == "refuted" and r.get("counterexample"):
                 line += " | counterexample: " + str(r["counterexample"].get("statement") or r["counterexample"]["runs"])
+            if (r.get("novelty") or {}).get("verdict") == "known":
+                line += " | known: " + ", ".join(r["novelty"].get("sources", []))
+            if r.get("human_reason"):
+                line += " | human: " + r["human_reason"]
             lines.append(line)
     for r in keep(reg["open_objections"]):
         lines.append(_line(f"[open objection; {r['campaign']}]", r, ("objection",)))

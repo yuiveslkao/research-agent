@@ -2,8 +2,9 @@
 
 Trust boundary: agents can only (1) write Julia source under workspace/agent/{experiments,statements}
 via the lab worktree, (2) start runs through the harness (Docker, no network, capped resources),
-(3) read records, (4) write role-restricted notes. They cannot write run records, grades, checkers,
-the library, or anything else.
+(3) read records, (4) write role-restricted notes, (5) store a proof record (derived status proven_AI).
+They cannot write run records, grades, statuses, checkers, the library, or anything else. Human statuses
+(including `proven`) are written only by status.set_human_status via the research-claims CLI.
 """
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ from rharness.spec import load_spec
 from rharness.store import get_path
 
 from . import claims as claims_mod
+from . import glossary
 from . import notes as notes_mod
+from . import status as status_mod
 from . import templates, tomlw
 from .arxiv import ArxivError
 from .config import MAX_MEM_GB, MAX_THREADS, MAX_WALLTIME_S, PRECISION_RANGE, Ctx
@@ -441,10 +444,42 @@ def _verify_sources(ctx: Ctx, claim: dict) -> list[dict]:
     return ok
 
 
+def _check_version_ref(snap: status_mod.Snapshot, ref: str, field: str) -> None:
+    """`about`/`revises` must name the current version of a claim (a hypothesis note id)."""
+    if ref not in snap.hyps:
+        raise ToolError(f"claim.{field} must be a hypothesis note id (N-...) from read_notes or read_claims; "
+                        f"{ref!r} is not one")
+    head = snap.head(snap.root_of(ref))["id"]
+    if head != ref:
+        raise ToolError(f"{ref} was revised; the current version is {head}. Use {field}={head}")
+
+
+def _check_counterexample(ctx: Ctx, run_id: str, run_ids: list[str]) -> None:
+    if run_id not in run_ids:
+        raise ToolError("claim.counterexample must be one of this note's run_ids")
+    spec, res = _load(ctx, run_id)
+    if res["status"] != "completed":
+        raise ToolError(f"{run_id} did not complete; a failed run is not a counterexample")
+    if spec["kind"] == "check":
+        outcome = ((res.get("reported") or {}).get("check") or {}).get("outcome")
+        if outcome not in ("violated", "fail"):
+            raise ToolError(f"{run_id} is a check with outcome {outcome!r}: it found no counterexample")
+
+
+def _violating_checks(ctx: Ctx, run_ids: list[str]) -> list[str]:
+    out = []
+    for r in run_ids:
+        spec, res = _load(ctx, r)
+        if spec["kind"] == "check" and ((res.get("reported") or {}).get("check") or {}).get("outcome") in ("violated", "fail"):
+            out.append(r)
+    return out
+
+
 def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
              run_ids: list[str] | None = None, claim: dict | None = None) -> dict:
     run_ids = list(run_ids or [])
     role, cid = ctx.settings.role, ctx.campaign["id"]
+    ledger = ctx.paths.ledger
     if kind in notes_mod.KINDS and kind not in notes_mod.ROLE_KINDS.get(role, set()):
         raise ToolError(f"role {role!r} may not write {kind!r} notes "
                         f"(allowed: {sorted(notes_mod.ROLE_KINDS.get(role, set()))})")
@@ -454,35 +489,68 @@ def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
         raise ToolError(f"a critique must cite at least one run from this campaign ({cid}) in run_ids: "
                         "the run you examined or the attack you started")
     for r in run_ids:
-        if not (isinstance(r, str) and RUN_ID.match(r) and (ctx.paths.ledger / "runs" / r / "result.json").exists()):
+        if not (isinstance(r, str) and RUN_ID.match(r) and (ledger / "runs" / r / "result.json").exists()):
             raise ToolError(f"unknown run id {r!r}")
+    snap = status_mod.Snapshot(ledger)
     claim = dict(claim) if isinstance(claim, dict) else claim
-    if kind == "finding" and isinstance(claim, dict) and not claim.get("about"):
-        hyps = [n for n in notes_mod.read_notes(ctx.paths.ledger, cid, "hypothesis", 100_000) if n["role"] == role]
-        if hyps:
-            claim["about"] = hyps[-1]["id"]                      # default: the researcher's latest hypothesis
-    evidence = None
+    if kind in ("finding", "critique", "attempt") and isinstance(claim, dict) and not claim.get("about"):
+        a = status_mod.default_about([n for n in snap.notes if n["campaign"] == cid], kind, role)
+        if a:
+            claim["about"] = a                    # default: the claim version this campaign is working on
     try:
         # validate the claim first so the agent gets the schema error before any I/O
         cleaned = claims_mod.validate_claim(kind, status, claim)
-    except claims_mod.ClaimError as e:
+        if role in ("researcher", "critic"):
+            glossary.check_note(kind, cleaned, text, status)
+    except (claims_mod.ClaimError, glossary.GlossaryError) as e:
         raise ToolError(str(e)) from e
-    if cleaned and cleaned.get("sources"):
-        evidence_sources = _verify_sources(ctx, cleaned)
-    else:
-        evidence_sources = None
+    for f in ("about", "revises"):
+        if cleaned and cleaned.get(f):
+            _check_version_ref(snap, cleaned[f], f)
+    if cleaned and cleaned.get("counterexample"):
+        _check_counterexample(ctx, cleaned["counterexample"], run_ids)
+    evidence_sources = _verify_sources(ctx, cleaned) if cleaned and cleaned.get("sources") else None
+    evidence = None
     if kind in ("finding", "critique"):
-        evidence = claims_mod.derive_evidence(ctx.paths.ledger, run_ids, role)
+        evidence = claims_mod.derive_evidence(ledger, run_ids, role)
         if evidence_sources:
             evidence["sources"] = evidence_sources
     try:
-        n = notes_mod.add_note(ctx.paths.ledger, role, cid, kind, text, status, run_ids, cleaned, evidence)
+        n = notes_mod.add_note(ledger, role, cid, kind, text, status, run_ids, cleaned, evidence)
     except notes_mod.NoteError as e:
         raise ToolError(str(e)) from e
     out = {"id": n["id"], "kind": kind, "status": status}
     if evidence:
         out["derived_evidence"] = {k: v for k, v in evidence.items() if k != "sources"}
+    ref = n["id"] if kind == "hypothesis" else (cleaned or {}).get("about")
+    if ref:
+        status_mod.sync(ledger, ref, role, f"{kind} {n['id']} by {role}")
+        snap = status_mod.Snapshot(ledger)
+        root = snap.root_of(ref)
+        out["claim_status"] = {"claim": root, "status": snap.derive(snap.head(root)["id"])["status"]}
+    if kind in ("finding", "critique") and not (cleaned or {}).get("counterexample"):
+        bad = _violating_checks(ctx, run_ids)
+        if bad:
+            out["hint"] = (f"{bad} found a violation. If it contradicts the claim, record it (finding result=refutes "
+                           "or challenge, with claim.counterexample=<run id>); the claim then becomes refuted")
     return out
+
+
+def submit_proof(ctx: Ctx, claim: str, statement: str, scope: str, proof: str,
+                 supporting_runs: list[str] | None = None) -> dict:
+    """Store a complete written proof of the exact current version of a claim; its status becomes proven_AI."""
+    _require_role(ctx, {"researcher", "human"})
+    runs = list(supporting_runs or [])
+    for r in runs:
+        _check_run_id(r)
+    if not isinstance(claim, str) or not claim:
+        raise ToolError("claim must be the claim's current version id (N-..., from read_claims)")
+    try:
+        rec = status_mod.add_proof(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], claim, statement, scope,
+                                   proof, runs)
+    except status_mod.StatusError as e:
+        raise ToolError(str(e)) from e
+    return {"proof": rec["id"], "claim": rec["claim"], "status": "proven_AI", "meaning": glossary.MEANING["proven_AI"]}
 
 
 def read_notes(ctx: Ctx, kind: str | None = None, limit: int = 30) -> list[dict]:
@@ -490,9 +558,13 @@ def read_notes(ctx: Ctx, kind: str | None = None, limit: int = 30) -> list[dict]
     return [claims_mod.compact_note(n) for n in ns]
 
 
-def read_claims(ctx: Ctx, campaign: str | None = None, limit: int = 10) -> dict:
-    """Claims across all campaigns (or one): accepted by the critic, open objections, refuted, unreviewed."""
-    reg = claims_mod.build_registry(ctx.paths.ledger, campaign)
+def read_claims(ctx: Ctx, campaign: str | None = None, limit: int = 10, status: str | None = None) -> dict:
+    """Claims across all campaigns (or one) with their status, open objections and failed attempts; newest first."""
+    if status is not None and status not in glossary.STATUSES:
+        raise ToolError(f"status must be one of {list(glossary.STATUSES)}")
+    reg = claims_mod.registry(ctx.paths.ledger, campaign)
+    if status:
+        reg["claims"] = [c for c in reg["claims"] if c["status"] == status]
     lim = max(1, min(int(limit), 30))
     return {k: list(reversed(v))[:lim] for k, v in reg.items()}
 

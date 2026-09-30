@@ -23,14 +23,17 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | `inspect_run`, `read_artifact`, `list_runs` | both | Read records: status, params, reported metrics, output files, stdout/stderr, the Julia source that ran |
 | `rerun_run`, `compare_runs` | both | Reproduce a run from its sealed spec; compare metrics of two runs (e.g. 2 precisions) |
 | `submit_falsify_bound` | both | Try to break `|error| <= bound` for the DE testbed over a parameter box, from a bound expression (no Julia to write) |
-| `add_note`, `read_notes` | both | Structured notes (see below). Researcher writes hypothesis/finding/decision; Critic writes critique |
-| `read_claims` | both | Claims across all campaigns: accepted by the critic, open objections, refuted, unreviewed |
+| `add_note`, `read_notes` | both | Structured notes (see below). Researcher writes hypothesis/finding/decision; Critic writes critique; both write attempt |
+| `read_claims` | both | Claims across all campaigns with their status, grade, critic verdict, counterexample; open objections; failed attempts |
+| `submit_proof` | researcher | Store a written proof bound to a claim's exact text; derived status becomes `proven_AI` (not human-reviewed) |
 | `arxiv` | both | Search arXiv or look one paper up by id (short records, cached, untrusted text) |
 
 Loop: **hypothesis -> experiment -> inspect -> finding -> decision(continue|conclude) -> critic attack -> critique(accept|challenge)**.
 The campaign ends when the last decision is `conclude` and the last critique is `accept`, **and** the critic
 started at least one run, check or rerun that round (logged in `ledger/audit.jsonl`); otherwise the round limit ends it.
-Output: `ledger/campaigns/<id>/report.md` (question, notes in order, runs, per-turn summaries).
+Output: `ledger/campaigns/<id>/report.json` (schema `report/0.1`, primary) and `report.md` rendered from it
+(claims and status, notes in order, runs, per-turn summaries). Status model, human review and the report format:
+[status.md](status.md).
 
 ## Structured claims and evidence
 
@@ -38,17 +41,25 @@ Every hypothesis, finding and critique carries a short structured `claim` instea
 
 | note | claim fields |
 |---|---|
-| hypothesis | `statement`, `scope`, `refuted_if` |
-| finding | `statement`, `scope`, `result` (supports/refutes/inconclusive), optional `limits`, `about`, `sources` |
-| critique accept | `statement`, `scope`, optional `limits` (the strongest claim actually supported) |
-| critique challenge | `objection`, optional `resolve_by` |
+| hypothesis | `statement`, `scope`, `refuted_if`, optional `revises` (the claim version it replaces) |
+| finding | `statement`, `scope`, `result` (supports/refutes/inconclusive), optional `limits`, `about`, `sources`; `counterexample` (a run id) required iff `result=refutes` |
+| critique accept | `statement`, `scope`, optional `limits` (the strongest claim actually supported), `about` |
+| critique challenge | `objection`, optional `resolve_by`, `about`, `counterexample` |
+| attempt | `approach`, `stage` (explore/falsify/prove/literature), `outcome` (failed/inconclusive/abandoned), `reason`, optional `about` |
+
+Each hypothesis is a **claim** (versions linked by `revises`) with a status derived by the server: `open`, `refuted`
+(a named counterexample run), `numerically-supported` (a supporting finding or critic accept citing runs; not a proof),
+`proven_AI` (a proof record via `submit_proof`; not human-reviewed); `proven` is set only by the human with
+`research-claims`. Status vocabulary (proved, established, rigorous, ...) is rejected in agent-written claims and text.
+See [status.md](status.md).
 
 The **server derives the evidence grade** of findings and critiques from the runs they cite; agents cannot assert it:
 `run` < `reproduced` (a passing rerun) < `cross-checked` (passing `compare_runs` across different precisions, or a run by
 the other role) < `falsification-tested` (a `falsify` check on the cited runs). `sources` are arXiv ids that must exist.
 This is token-neutral or cheaper: the claim fields replace prose and the evidence is not restated. Each new campaign's
-first note carries a brief of earlier accepted claims, open objections and refuted hypotheses (`--no-prior` turns it off,
-`--prior-limit` sizes it); `read_claims` gives the full picture. The report renders claims, grades and a falsification line.
+first note carries a brief of earlier claims with their status, open objections and failed attempts (`--no-prior` turns it
+off, `--prior-limit` sizes it); `read_claims` gives the full picture. The report renders claims, statuses, grades and a
+falsification line.
 
 ## Usage accounting
 
@@ -70,7 +81,8 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
   lab worktree (never on your branch). Checkers, the library, specs, grades and run records are not writable.
 - Runs execute in Docker (no network, CPU/RAM/walltime capped server-side: 4 threads, 6 GB, 1800 s, 64..4096 bits).
 - Per-campaign run budget (`--max-runs`, default 30; reruns count).
-- Roles are enforced in the server: the Researcher cannot write critiques, the Critic cannot write decisions.
+- Roles are enforced in the server: the Researcher cannot write critiques, the Critic cannot write decisions or proofs.
+- No MCP tool can set a human status; `proven` is written only by `research-claims set` (human, in a shell).
 - Tool output, artifacts and notes are treated as data by the profile instructions.
 - The lab merges your **committed** HEAD before every run. Commit library/checker changes before a campaign.
 
@@ -96,16 +108,22 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
    `tail -f ~/.hermes/profiles/<role>/logs/agent.log`, and `ls -t ledger/notes ledger/runs | head`.
    Hard limits: experiment walltime (default 600 s, max 1800), Hermes turn `--turn-timeout` (default 1800 s, then killed),
    `agent.max_turns`. Ctrl-C is safe: notes and runs stay in the ledger.
-8. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `audit.jsonl`). Keep one with `git add -f`.
+8. Records are git-ignored (`ledger/runs`, `notes`, `campaigns`, `status`, `proofs`, `audit.jsonl`). Keep one with
+   `git add -f`. Human reviews in `ledger/status/` cannot be regenerated: back up `ledger/` as a unit.
+9. **After pulling a new version**: `pip install -e agent` (new commands such as `research-claims`) and re-run
+   `research-install-profiles --root .` (tool list and `SOUL.md` change between versions), then `research-doctor --root . --ask`.
 
 ## What is verified and what is not
 
-Verified in the development sandbox (23 agent tests, 19 harness tests, all with fake Julia and no LLM):
+Verified in the development sandbox (86 agent tests, 19 harness tests, all with fake Julia and no LLM):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
 - Campaign logic with a scripted agent standing in for Hermes: stop on accept, round limit, ignoring an
   unearned accept, agent-failure handling, report rendering.
 - Profile installer merge behaviour.
+- Status model: derivation, proof binding, counterexamples, revisions and stale flags, human override and append-only
+  history, the glossary, the JSON report against its schema, the `research-claims` CLI, and that no MCP tool reaches
+  `proven`.
 
 **Not verified** (needs your machine):
 - Hermes itself. I took these from Hermes' public docs, summarized by a fetch tool, and could not run Hermes:
@@ -122,7 +140,8 @@ Verified in the development sandbox (23 agent tests, 19 harness tests, all with 
 - One campaign at a time (`ledger/campaigns/CURRENT`).
 - Notes are free text: the driver reads only `status` fields, not the content.
 - The Critic's attack is checked for existence, not quality.
-- No literature tool, no claim/grade ledger, no `interval_certify`.
+- No `interval_certify`, no proof checking (`proven_AI` is stored text, not verified), no proof-stage workflow or
+  review pass, no novelty search.
 
 ## Decisions and open items
 

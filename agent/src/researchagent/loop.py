@@ -19,6 +19,7 @@ from typing import Protocol
 
 from . import claims as claims_mod
 from . import notes as notes_mod
+from . import report as report_mod
 from . import tools, usage
 from .config import Ctx, Settings, set_current_campaign
 
@@ -130,18 +131,24 @@ def _claim_lines(n: dict) -> list[str]:
 
 
 def render_report(cid: str, question: str, stopped_by: str, notes: list[dict], runs: list[dict],
-                  transcript: list[tuple[int, str, str]], usage_md: str = "", falsify_runs: int = 0) -> str:
+                  transcript: list[tuple[int, str, str]], usage_md: str = "", falsify_runs: int = 0,
+                  report: dict | None = None) -> str:
+    """Markdown view. The claims section is rendered from the JSON report (report.json), which is primary."""
     dec = next((n for n in reversed(notes) if n["kind"] == "decision"), None)
     crit = next((n for n in reversed(notes) if n["kind"] == "critique"), None)
     L = [f"# Campaign {cid}", "", f"**Question:** {question}", "", f"**Stopped by:** {stopped_by}", "",
-         "## Outcome", ""]
+         "Nothing in this report is a proof unless a claim's status is `proven` (human-reviewed) or `proven_AI` "
+         "(proved by the AI, not human-reviewed).", "", "## Outcome", ""]
     if crit and crit["status"] == "accept":
-        L += ["**Accepted claim** (restated by the critic):"] + _claim_lines(crit) + [""]
+        L += ["**Critic's last verdict: could not break it.** The critic's restatement below held in the tested "
+              "scope (numerically supported, not a proof):"] + _claim_lines(crit) + [""]
     elif crit:
-        L += ["**Open objection** (critic):"] + _claim_lines(crit) + [""]
+        L += ["**Critic's last verdict: open objection:**"] + _claim_lines(crit) + [""]
     L += [f"**Last researcher decision** [{dec['status'] if dec else 'none'}]: {(dec or {}).get('text') or '(none)'}", "",
-          f"**Falsification attempted:** {'yes (' + str(falsify_runs) + ' check run(s))' if falsify_runs else 'no'}", "",
-          "## Notes (chronological)", ""]
+          f"**Falsification attempted:** {'yes (' + str(falsify_runs) + ' check run(s))' if falsify_runs else 'no'}", ""]
+    if report is not None:
+        L += report_mod.markdown_claims(report)
+    L += ["## Notes (chronological)", ""]
     for n in notes:
         st = f" [{n['status']}]" if n.get("status") else ""
         runs_s = f" (runs: {', '.join(n['run_ids'])})" if n.get("run_ids") else ""
@@ -187,8 +194,9 @@ def run_campaign(question: str | None, rounds: int, root: Path, agent: Agent, ma
         if prior:
             b = claims_mod.brief(ledger, prior_limit, exclude_campaign=cid)
             if b:
-                seed += ("\n\nEstablished by earlier campaigns (build on it, do not re-derive; challenge it only "
-                         "with new evidence):\n" + b)
+                seed += ("\n\nEarlier campaigns' claims with their status (build on them, do not re-derive or "
+                         "retry failed attempts; challenge them only with new evidence; only `proven` is "
+                         "human-reviewed):\n" + b)
         notes_mod.add_note(ledger, "driver", cid, "question", seed)
         (cdir / "campaign.json").write_text(json.dumps(
             {"id": cid, "question": question, "rounds": rounds, "max_runs": max_runs}, indent=2))
@@ -251,8 +259,10 @@ def run_campaign(question: str | None, rounds: int, root: Path, agent: Agent, ma
     runs = tools.list_runs(ctx, limit=100)
     usage_md = usage.render(cid, usage.summarize_calls(ledger, cid), _load_turns(cdir))
     falsify_runs = sum(1 for r in runs if r["kind"] == "check" and (r.get("title") or "").startswith("falsify"))
-    report = render_report(cid, question, stopped_by, all_notes, runs, transcript, usage_md, falsify_runs)
-    (cdir / "report.md").write_text(report, encoding="utf-8")
+    rep, _ = report_mod.write_campaign_report(ledger, cid, {"question": question, "stopped_by": stopped_by,
+                                                            "rounds": rounds, "max_runs": max_runs})
+    md = render_report(cid, question, stopped_by, all_notes, runs, transcript, usage_md, falsify_runs, rep)
+    (cdir / "report.md").write_text(md, encoding="utf-8")
     return CampaignResult(cid, stopped_by, rnd, cdir / "report.md", errors)
 
 
@@ -281,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
     res = run_campaign(q, rounds, Path(a.root), HermesCLI(timeout=a.turn_timeout, heartbeat_s=a.heartbeat),
                        max_runs, campaign_id=a.resume, progress=progress, resume=bool(a.resume),
                        prior=not a.no_prior, prior_limit=a.prior_limit)
-    print(f"campaign {res.campaign_id}: {res.stopped_by} after {res.rounds_run} round(s)\nreport: {res.report_path}")
+    print(f"campaign {res.campaign_id}: {res.stopped_by} after {res.rounds_run} round(s)\nreport: {res.report_path}"
+          f"\njson:   {res.report_path.with_suffix('.json')}")
     return 0 if not res.errors else 1
 
 

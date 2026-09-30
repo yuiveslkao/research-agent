@@ -1,12 +1,14 @@
 # Handoff: automated numerical-analysis research agent
 
 Audience: the LLM/engineer who takes this project over. Read this first, then `README.md`, `docs/agent.md`,
-`docs/phase0.md`, `docs/golden_questions.md`.
+`docs/status.md`, `docs/phase0.md`, `docs/golden_questions.md`. Section 9 logs what changed since the handoff.
 
 **Read this warning first.** The intended system is *not* what is built. What is built covers roughly stages 2–3 of the
-intended workflow for real-valued numerical claims. It has **no proof stage, no rigorous (certified) numerics, no
-novelty check, and no proof-status classification.** Its reports use words such as "established" and "accepted" that mean
-"held in the tested scope", never "proven". Do not let anyone read them as proofs.
+intended workflow for real-valued numerical claims. It has **no proof-stage workflow, no proof checking, no rigorous
+(certified) numerics, and no novelty check.** Since build steps 1–2 (section 9) every claim carries a status
+(`open`, `refuted`, `numerically-supported`, `proven_AI`, human-only `proven`), and the server rejects words such as
+"established" or "proved" in agent notes. `proven_AI` means a proof text is stored, not that it is correct; only
+`proven` (set by a human) means a proof was reviewed.
 
 ---
 
@@ -32,9 +34,9 @@ The system should automate that whole classification and never blur the classes.
 | 1 intake | question in, decomposed into hypotheses | one free-text question file; the agent writes one hypothesis note at a time |
 | 2 explore | exhaustive/small-case experiments, conjecture generation | Julia experiments via the harness (`submit_experiment`); tuned for real-valued error sweeps; no exact-arithmetic or enumeration toolkit, no pattern discovery |
 | 3 falsify | try to disprove | `falsify` (multi-start search on a bound, BigFloat) and `highprec` checks; Critic role with independent reruns/reimplementations. Search effort, not certificates |
-| 4 prove | prove survivors | **absent** |
-| 5 report | proved results to the human | campaign `report.md` with claims, scope, limits, server-derived evidence grade |
-| classification | proven / numerically supported / incorrect | only evidence grades (run < reproduced < cross-checked < falsification-tested) and `result: supports/refutes/…`. No proven class |
+| 4 prove | prove survivors | `submit_proof` stores a written proof bound to the claim's exact text (status `proven_AI`); no workflow, budget, review pass or checking yet |
+| 5 report | proved results to the human | `report.json` (schema `report/0.1`) with claims, statuses, evidence, proofs, attempts, history, reproduction commands; `report.md` derived from it; `research-claims queue` for review |
+| classification | proven / numerically supported / incorrect | `open`, `refuted` (named counterexample), `numerically-supported`, `proven_AI`, `proven` (human-only), derived + human side by side with history; evidence grades alongside |
 
 ## 2. Rigor requirements (decided by the owner)
 
@@ -74,9 +76,11 @@ Repo layout, branch `claude/laughing-pascal-7zteju`; the owner runs it on Window
 - `workspace/` (Julia 1.11.3, `envs/main` pins SpecialFunctions): `library/DESinc.jl` (DE quadrature), `Prelude.jl`,
   checkers `highprec.jl` and `falsify.jl`, executable statements `C0001–C0003` (C0003 has a planted flaw K=2),
   scripts, reference data. Agent-writable only in `workspace/agent/{experiments,statements}`.
-- `agent/src/researchagent/`: MCP server (FastMCP, `mcp>=1.9,<2`) with 12 tools; `loop.py` driver (`research-loop`);
-  structured claims and derived evidence (`claims.py`); notes with role rules (`notes.py`); arXiv client with verification;
-  statement generator (`templates.py`); `research-doctor`, `research-usage`, `research-install-profiles`. 73 tests.
+- `agent/src/researchagent/`: MCP server (FastMCP, `mcp>=1.9,<2`) with 13 tools; `loop.py` driver (`research-loop`);
+  structured claims and derived evidence (`claims.py`); claim status, proofs and history (`status.py`); fixed vocabulary
+  (`glossary.py`); JSON report (`report.py`, schema in `schemas/`); notes with role rules (`notes.py`); arXiv client with
+  verification; statement generator (`templates.py`); `research-doctor`, `research-usage`, `research-install-profiles`,
+  `research-claims`. 86 tests.
 - Runtime: **Hermes Agent** with two profiles (researcher, critic), all built-in toolsets disabled, only the
   research MCP tools. Strands Agents was evaluated and rejected. Julia is the research language, Python only for infrastructure.
 - Server-enforced gates: a hypothesis note before experiments, claims must cite runs from the current campaign, critic must
@@ -188,12 +192,13 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 (integer problems in real-valued checkers), read-only run directories breaking git on WSL2 (files sealed, dirs writable).
 
 ## 7. Suggested build order for the successor
-1. Implement the status model of section 2 (derived status, human override with append-only history, `proven` human-only, `proven_AI` only with a proof artifact) and a fixed glossary enforced by the server. Rename report wording accordingly and test that no agent tool can set `proven`.
-2. Add the `attempt` note kind and the versioned JSON report schema.
+1. **Done** (section 9). Implement the status model of section 2 (derived status, human override with append-only history, `proven` human-only, `proven_AI` only with a proof artifact) and a fixed glossary enforced by the server. Rename report wording accordingly and test that no agent tool can set `proven`.
+2. **Done** (section 9). Add the `attempt` note kind and the versioned JSON report schema.
 3. Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
 4. (Optional, supporting only) interval-arithmetic checker and record type.
 5. Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
 6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
+   (Storage, binding and the queue exist; the workflow, structured proof format and review pass do not.)
 7. Novelty search and human review loop.
 8. Compute expansion (TSUBAME, GPU) only when a real question needs it.
 
@@ -206,3 +211,40 @@ questions are to be designed by the successor.
 
 Still open for the owner: novelty standard before reporting; monthly cost ceiling and API key vs login; when TSUBAME/GPU is
 needed; whether questions are structured or free text; the owner's own golden questions.
+
+## 9. Progress log
+
+### Build steps 1–2 (branch `claude/numerical-analysis-agent-handoff-9bsgqd`)
+
+Details: [status.md](status.md).
+
+- **Status model.** A claim is a hypothesis note; `revises` links versions; the fingerprint (sha256 of normalized statement
+  + scope) binds proofs and human statuses to exact text. Derived status: `refuted` (a note names a counterexample run) >
+  `proven_AI` (a proof record for this version) > `numerically-supported` (a supporting finding or critic accept) > `open`;
+  a proof next to a counterexample is a conflict. Revising a claim restarts its derived status (evidence does not transfer).
+- **Human override.** `research-claims set|clear` is the only writer of human statuses; `proven` needs a proof record of the
+  current version (or the human's own proof file), `refuted` a counterexample, every change a reviewer id and reason. The
+  derived status is kept next to it. Flags `stale` (claim revised since) and `derived_changed` (derived status moved since)
+  put a claim back in the review queue. `ledger/status/history.jsonl` is append-only and records server, AI and human changes.
+- **proven is human-only**: no MCP tool writes human statuses (static AST test, MCP-protocol test); `set_human_status` refuses
+  in an agent process.
+- **Glossary.** Status vocabulary (prove/proof/established/rigorous/certified/guaranteed/QED) is rejected in agent-written
+  statement/scope/limits/text, negations allowed. Report and seed wording renamed ("Accepted", "Established" removed).
+- **Counterexamples.** `result=refutes` now requires `counterexample=<run id>`; a check that survived cannot be named; a
+  violated check cited without being named triggers a hint. Critics can name counterexamples in challenges.
+- **Attempts.** `attempt` notes (approach, stage, outcome never success, reason), in `read_claims`, the seed and the report.
+- **JSON report** `report/0.1` with JSON Schema, written per campaign; `research-claims report` for the whole ledger.
+- **Proof storage.** `submit_proof` (researcher only) stores `proof/0.1` records; refused on text mismatch, short text,
+  revised version or recorded counterexample. The researcher profile says to prove only claims that are numerically
+  supported and survived falsification; the server does not enforce that (the start rule is still open, 5.4).
+- Fixed on the way: `add_note(kind="critique", status=<invalid>)` raised `KeyError` (a protocol error over MCP); now an
+  ordinary error result.
+- Not done: Julia checkers unchanged (no Julia in the development sandbox), so `falsify` still searches its whole budget for
+  the worst point instead of stopping at the first violation; the status layer does treat the first named counterexample
+  as final.
+
+After pulling: `pip install -e agent`, re-run `research-install-profiles --root .` (the researcher's tool list and both
+`SOUL.md` files changed), then `research-doctor --root . --ask`. Older ledgers keep working: notes without `about` are
+attributed to the campaign's current hypothesis, and old `refutes` findings count as counterexamples via their cited runs.
+
+Next: build step 3 (evaluation design and runner).

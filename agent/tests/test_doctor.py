@@ -26,7 +26,7 @@ def test_healthy_profile(root, tmp_path):
     home, _ = setup_profile(tmp_path, root)
     fs = check_profile("researcher", home, root)
     assert "fail" not in levels(fs), render("p", fs)
-    assert any("MCP server starts; tools: 12" in f.msg for f in fs)
+    assert any("MCP server starts; tools: 13" in f.msg for f in fs)
     assert any("no built-in toolsets enabled" in f.msg for f in fs)
 
 

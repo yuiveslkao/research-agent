@@ -20,6 +20,11 @@ import yaml
 ROLES = ("researcher", "critic")
 COMMON_TOOLS = ["submit_experiment", "submit_check", "submit_falsify_bound", "inspect_run", "read_artifact",
                 "list_runs", "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv"]
+ROLE_TOOLS = {"researcher": COMMON_TOOLS + ["submit_proof"], "critic": list(COMMON_TOOLS)}   # server enforces too
+
+
+def tools_for(role: str) -> list[str]:
+    return list(ROLE_TOOLS.get(role, COMMON_TOOLS))
 # Every built-in / plugin toolset name we know of. `agent.disabled_toolsets` is applied by Hermes as a strict
 # subtraction after toolset resolution, so listing all of them leaves only the MCP tools. The `file` toolset
 # is the one that provides read_file/write_file/patch/search_files (and terminal).
@@ -39,7 +44,7 @@ def mcp_entry(role: str, root: Path, executor: str) -> dict:
            "PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
     return {"command": sys.executable, "args": ["-m", "researchagent.mcp_server"], "env": env,
             "timeout": TOOL_TIMEOUT_S, "connect_timeout": 30,
-            "tools": {"include": list(COMMON_TOOLS), "prompts": False, "resources": False}}
+            "tools": {"include": tools_for(role), "prompts": False, "resources": False}}
 
 
 def merge_config(cfg: dict, role: str, root: Path, executor: str, max_turns: int,

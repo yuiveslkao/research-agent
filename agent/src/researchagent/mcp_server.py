@@ -62,15 +62,31 @@ DESC_CHECK = (
 
 DESC_NOTE = (
     "Write a research note. Put the substance in `claim` (short strings); `text` is optional (<= 800 chars).\n"
-    "- hypothesis (researcher): claim={statement, scope, refuted_if}. Write it BEFORE running.\n"
-    "- finding (researcher): claim={statement, scope, result: supports|refutes|inconclusive, limits?, about?, sources?}; "
-    "run_ids required. `about` defaults to your latest hypothesis.\n"
+    "- hypothesis (researcher): claim={statement, scope, refuted_if, revises?}. Write it BEFORE running. A hypothesis is "
+    "a claim version; `revises`=<current version id> makes it the next version of an earlier claim (evidence does not "
+    "carry over to new wording).\n"
+    "- finding (researcher): claim={statement, scope, result: supports|refutes|inconclusive, limits?, about?, sources?, "
+    "counterexample?}; run_ids required. result=refutes needs counterexample=<run id from run_ids> and the violating "
+    "parameters in statement.\n"
     "- decision (researcher): status continue|conclude, text = next step or conclusion.\n"
     "- critique (critic): status accept -> claim={statement, scope, limits?} = the strongest claim actually supported; "
-    "status challenge -> claim={objection, resolve_by?}; run_ids from this campaign required.\n"
+    "status challenge -> claim={objection, resolve_by?, counterexample?}; run_ids from this campaign required.\n"
+    "- attempt (both): claim={approach, stage: explore|falsify|prove|literature, outcome: failed|inconclusive|abandoned, "
+    "reason}. Log every line of attack that did not work so it is not retried.\n"
+    "`about` (finding, critique, attempt) = the claim version id; defaults to the one this campaign is working on. "
     "`scope` names function class, parameter ranges, N range, precision. `sources` = arXiv ids (verified to exist). "
-    "The server derives the evidence grade (run < reproduced < cross-checked < falsification-tested) from the cited "
-    "runs, reruns, compare_runs, other roles' runs and falsify checks; do not restate evidence.")
+    "The server derives the evidence grade and the claim status (open, refuted, numerically-supported, proven_AI; "
+    "`proven` is human-only) from records. Words such as proved/proof/established/rigorous/certified/guaranteed are "
+    "rejected in statement/scope/limits/text (negations like 'not proven' are fine).")
+
+DESC_PROOF = (
+    "Record a complete written proof of a claim (researcher only). `claim` = the claim's current version id; "
+    "`statement` and `scope` must repeat that version exactly (the proof is bound to this text); `proof` = the whole "
+    "argument in Markdown (reformulation, every lemma with its proof, necessity and sufficiency, where each assumption "
+    "is used), 200..60000 characters; `supporting_runs` = runs used as computer-assisted steps (they support, never "
+    "replace, the argument). The status becomes proven_AI (proved by the AI, not human-reviewed); only the human can "
+    "mark it proven. Refused if a counterexample is recorded. For a different or narrower statement, add a hypothesis "
+    "with revises=<id> first. Log a failed proof attempt with add_note(kind='attempt', stage='prove').")
 
 DESC_FALSIFY = (
     "Try to break `|error| <= bound` for the DE rule on I(a,b)=int_{-1}^{1}(1-x)^a(1+x)^b dx without writing Julia. "
@@ -106,7 +122,7 @@ def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
         t0 = time.monotonic()
         try:
             result = await anyio.to_thread.run_sync(lambda: fn(ctx, *a, **kw))
-        except (tools.ToolError, tools.notes_mod.NoteError) as e:
+        except (tools.ToolError, tools.notes_mod.NoteError, tools.status_mod.StatusError) as e:
             result = {"ok": False, "error": str(e)}
         log_call(fn, a, kw, result, t0)
         return result
@@ -168,11 +184,19 @@ def build_server(settings: Settings | None = None, executor=None) -> FastMCP:
         `grade` per note. The first note holds the question and what earlier campaigns established."""
         return await call(tools.read_notes, kind, limit)
 
+    @mcp.tool(description=DESC_PROOF)
+    async def submit_proof(claim: str, statement: str, scope: str, proof: str,
+                           supporting_runs: list[str] | None = None) -> dict:
+        return await call(tools.submit_proof, claim, statement, scope, proof, supporting_runs)
+
     @mcp.tool()
-    async def read_claims(campaign: str | None = None, limit: int = 10) -> dict:
-        """Claims across ALL campaigns (or one): accepted by the critic (with limits and evidence grade), open
-        objections, refuted hypotheses, and findings not yet reviewed. Use it to build on earlier results."""
-        return await call(tools.read_claims, campaign, limit)
+    async def read_claims(campaign: str | None = None, limit: int = 10, status: str | None = None) -> dict:
+        """Claims across ALL campaigns (or one), newest first, each with its status (open | refuted |
+        numerically-supported = no counterexample found, not a proof | proven_AI = proved by the AI, not
+        human-reviewed | proven = human-reviewed), evidence grade, critic verdict, supported_as (the narrower form the
+        evidence supports) and counterexample; plus open objections and failed attempts (do not retry those
+        without a new idea). `status` filters. Use it to build on earlier results and to get claim ids."""
+        return await call(tools.read_claims, campaign, limit, status)
 
     @mcp.tool()
     async def arxiv(query: str | None = None, id: str | None = None, max_results: int = 5) -> list[dict] | dict:

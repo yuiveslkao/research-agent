@@ -91,26 +91,37 @@ def test_registry_and_brief_across_campaigns(make_ctx):
     res, cri = make_ctx("researcher"), make_ctx("critic")
     set_current_campaign(res.paths.ledger, "C-1", 20)
     r = run(res)
+    h1 = tools.read_notes(res, kind="hypothesis")[-1]["id"]
     tools.add_note(res, "finding", claim=FND("rate is pi^2", "supports", limits="N<=128"), run_ids=[r["run_id"]])
     tools.add_note(res, "hypothesis", claim=HYP("rate is 2 pi d"))
     r2 = tools.submit_experiment(res, "t", "h", script=SCRIPT)
-    tools.add_note(res, "finding", claim=FND("rate is not 2 pi d", "refutes"), run_ids=[r2["run_id"]])
-    tools.add_note(cri, "critique", status="challenge", claim=CHAL, run_ids=[r["run_id"]])
-    tools.add_note(cri, "critique", status="accept", claim=ACC, run_ids=[r["run_id"]])
+    out = tools.add_note(res, "finding", claim=FND("violated at N=64, d=1", "refutes", counterexample=r2["run_id"]),
+                         run_ids=[r2["run_id"]])
+    assert out["claim_status"]["status"] == "refuted"
+    tools.add_note(cri, "critique", status="challenge", claim={**CHAL, "about": h1}, run_ids=[r["run_id"]])
+    tools.add_note(cri, "critique", status="accept", claim={**ACC, "about": h1}, run_ids=[r["run_id"]])
     set_current_campaign(res.paths.ledger, "C-2", 20)
     r3 = run(res)
     tools.add_note(cri, "critique", status="challenge", claim={"objection": "prefactor confounded"}, run_ids=[r3["run_id"]])
 
-    reg = claims.build_registry(res.paths.ledger)
-    assert [a["statement"] for a in reg["accepted"]] == ["the supported claim"]
-    assert [o["objection"] for o in reg["open_challenges"]] == ["prefactor confounded"]   # C-1's was answered by its accept
-    assert [x["statement"] for x in reg["refuted"]] == ["rate is not 2 pi d"]
+    reg = claims.registry(res.paths.ledger)
+    by = {(c["statement"], c["campaign"]): c for c in reg["claims"]}
+    sup = by[("H", "C-1")]
+    assert sup["status"] == "numerically-supported" and sup["critic"] == "accept" and sup["id"] == h1
+    assert sup["supported_as"]["statement"] == "the supported claim"        # the critic narrowed it
+    ref = by[("rate is 2 pi d", "C-1")]
+    assert ref["status"] == "refuted" and ref["counterexample"]["runs"] == [r2["run_id"]]
+    assert by[("H", "C-2")]["status"] == "open" and by[("H", "C-2")]["critic"] == "challenge"
+    assert [o["objection"] for o in reg["open_objections"]] == ["prefactor confounded"]   # C-1's was answered by its accept
     b = claims.brief(res.paths.ledger, exclude_campaign="C-2")
-    assert "ACCEPTED" in b and "the supported claim" in b and "REFUTED" in b and "prefactor confounded" not in b
-    assert "OPEN OBJECTION" in claims.brief(res.paths.ledger)
+    assert "numerically-supported, not a proof" in b and "the supported claim" in b
+    assert "[refuted; C-1]" in b and "violated at N=64" in b and "prefactor confounded" not in b
+    assert "ACCEPTED" not in b and "stablished" not in b
+    assert "[open objection; C-2]" in claims.brief(res.paths.ledger)
     assert claims.brief(res.paths.ledger, max_chars=60).endswith("(older entries omitted; call read_claims)")
     got = tools.read_claims(res, limit=5)
-    assert set(got) == {"accepted", "open_challenges", "refuted", "unreviewed"} and got["accepted"]
+    assert set(got) == {"claims", "open_objections", "failed_attempts"} and got["claims"]
+    assert [c["status"] for c in tools.read_claims(res, status="refuted")["claims"]] == ["refuted"]
 
 
 def test_read_notes_is_compact(ctx):

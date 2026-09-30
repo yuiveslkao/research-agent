@@ -1,0 +1,805 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "researchagent/report-0.1",
+  "title": "Research agent report, schema report/0.1",
+  "description": "One campaign (campaign != null) or the whole ledger. Status vocabulary: glossary.statuses. 'proven' is only ever set by a human; 'proven_AI' means proved by the AI, not human-reviewed.",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at",
+    "campaign",
+    "glossary",
+    "claims",
+    "open_objections",
+    "attempts",
+    "review_queue",
+    "runs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "report/0.1"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "campaign": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "question": {
+              "type": "string"
+            },
+            "stopped_by": {
+              "type": "string"
+            },
+            "rounds": {
+              "type": "integer"
+            },
+            "max_runs": {
+              "type": "integer"
+            }
+          }
+        }
+      ]
+    },
+    "glossary": {
+      "type": "object",
+      "required": [
+        "statuses",
+        "set_by",
+        "grades"
+      ]
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "versions",
+          "campaigns",
+          "statement",
+          "scope",
+          "fingerprint",
+          "status",
+          "supported_as",
+          "evidence",
+          "proofs",
+          "attempts",
+          "citations",
+          "history",
+          "reproduce"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "claim id = its first hypothesis note id"
+          },
+          "version": {
+            "type": "string",
+            "description": "current version (latest hypothesis in the revises chain)"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "statement": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "refuted_if": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "hash of the normalized statement and scope of the current version"
+          },
+          "status": {
+            "type": "object",
+            "required": [
+              "effective",
+              "meaning",
+              "derived",
+              "human",
+              "stale",
+              "derived_changed",
+              "conflict",
+              "narrowed",
+              "awaiting_review",
+              "review_reasons"
+            ],
+            "properties": {
+              "effective": {
+                "enum": [
+                  "open",
+                  "refuted",
+                  "numerically-supported",
+                  "proven_AI",
+                  "proven"
+                ],
+                "description": "the human status if set, else the derived one"
+              },
+              "meaning": {
+                "type": "string"
+              },
+              "derived": {
+                "enum": [
+                  "open",
+                  "refuted",
+                  "numerically-supported",
+                  "proven_AI"
+                ],
+                "description": "computed by the server from records; never 'proven'"
+              },
+              "human": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "status",
+                      "by",
+                      "at",
+                      "reason"
+                    ],
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "open",
+                          "refuted",
+                          "numerically-supported",
+                          "proven_AI",
+                          "proven"
+                        ]
+                      },
+                      "by": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "proof": {
+                        "type": "string"
+                      },
+                      "counterexample": {
+                        "type": "string"
+                      },
+                      "derived_at_set": {
+                        "enum": [
+                          "open",
+                          "refuted",
+                          "numerically-supported",
+                          "proven_AI",
+                          "proven"
+                        ]
+                      },
+                      "version": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "claim revised after the human set its status"
+              },
+              "derived_changed": {
+                "type": "boolean",
+                "description": "derived status moved after the human set its status"
+              },
+              "conflict": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "narrowed": {
+                "type": "boolean"
+              },
+              "awaiting_review": {
+                "type": "boolean"
+              },
+              "review_reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "supported_as": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "note",
+                  "statement",
+                  "scope"
+                ],
+                "properties": {
+                  "note": {
+                    "type": "string"
+                  },
+                  "statement": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
+                  "limits": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "evidence": {
+            "type": "object",
+            "required": [
+              "grade",
+              "findings",
+              "critiques",
+              "counterexamples",
+              "runs"
+            ],
+            "properties": {
+              "grade": {
+                "enum": [
+                  "none",
+                  "run",
+                  "reproduced",
+                  "cross-checked",
+                  "falsification-tested"
+                ]
+              },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "campaign",
+                    "role",
+                    "created"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "campaign": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "string"
+                    },
+                    "verdict": {
+                      "enum": [
+                        "accept",
+                        "challenge"
+                      ]
+                    },
+                    "result": {
+                      "enum": [
+                        "supports",
+                        "refutes",
+                        "inconclusive"
+                      ]
+                    },
+                    "statement": {
+                      "type": "string"
+                    },
+                    "objection": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "limits": {
+                      "type": "string"
+                    },
+                    "resolve_by": {
+                      "type": "string"
+                    },
+                    "counterexample": {
+                      "type": "string"
+                    },
+                    "grade": {
+                      "enum": [
+                        "none",
+                        "run",
+                        "reproduced",
+                        "cross-checked",
+                        "falsification-tested"
+                      ]
+                    },
+                    "run_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "critiques": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "campaign",
+                    "role",
+                    "created"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "campaign": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "string"
+                    },
+                    "verdict": {
+                      "enum": [
+                        "accept",
+                        "challenge"
+                      ]
+                    },
+                    "result": {
+                      "enum": [
+                        "supports",
+                        "refutes",
+                        "inconclusive"
+                      ]
+                    },
+                    "statement": {
+                      "type": "string"
+                    },
+                    "objection": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "limits": {
+                      "type": "string"
+                    },
+                    "resolve_by": {
+                      "type": "string"
+                    },
+                    "counterexample": {
+                      "type": "string"
+                    },
+                    "grade": {
+                      "enum": [
+                        "none",
+                        "run",
+                        "reproduced",
+                        "cross-checked",
+                        "falsification-tested"
+                      ]
+                    },
+                    "run_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "note",
+                    "role",
+                    "run_ids",
+                    "named"
+                  ],
+                  "properties": {
+                    "note": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "run_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "named": {
+                      "type": "boolean"
+                    },
+                    "statement": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "proofs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "author",
+                "created",
+                "version",
+                "current",
+                "sha256",
+                "chars",
+                "path"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "created": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "chars": {
+                  "type": "integer"
+                },
+                "supporting_runs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "campaign",
+                "stage",
+                "approach",
+                "outcome",
+                "reason"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "claim": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "campaign": {
+                  "type": "string"
+                },
+                "stage": {
+                  "enum": [
+                    "explore",
+                    "falsify",
+                    "prove",
+                    "literature"
+                  ]
+                },
+                "approach": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "failed",
+                    "inconclusive",
+                    "abandoned"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "at",
+                "claim",
+                "version",
+                "fingerprint",
+                "source",
+                "actor",
+                "status"
+              ],
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "claim": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "fingerprint": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "server",
+                    "ai",
+                    "human"
+                  ]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "by": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "open",
+                    "refuted",
+                    "numerically-supported",
+                    "proven_AI",
+                    "proven",
+                    null
+                  ]
+                },
+                "previous": {
+                  "enum": [
+                    "open",
+                    "refuted",
+                    "numerically-supported",
+                    "proven_AI",
+                    "proven",
+                    null
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "object"
+                },
+                "derived_at_set": {
+                  "enum": [
+                    "open",
+                    "refuted",
+                    "numerically-supported",
+                    "proven_AI",
+                    "proven"
+                  ]
+                },
+                "proof": {
+                  "type": "string"
+                },
+                "counterexample": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "reproduce": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "open_objections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "claim",
+          "campaign",
+          "objection"
+        ]
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "campaign",
+          "stage",
+          "approach",
+          "outcome",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "claim": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "explore",
+              "falsify",
+              "prove",
+              "literature"
+            ]
+          },
+          "approach": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "inconclusive",
+              "abandoned"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "review_queue": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "reproduce"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "precision_bits": {
+            "type": "integer"
+          },
+          "code_commit": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "string"
+          },
+          "reproduce": {
+            "type": "string"
+          },
+          "check_outcome": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

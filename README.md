@@ -13,4 +13,7 @@ configurations, conformal maps). Design notes and the Phase 0 plan: [docs/phase0
 | `ledger/` | `runs/` (sealed records) and `checks/`; committed |
 | `store/`, `work/` | Content-addressed outputs and scratch; git-ignored |
 
+Claim statuses (`open`, `refuted`, `numerically-supported`, `proven_AI`, human-only `proven`), human review with
+`research-claims`, and the JSON report: [docs/status.md](docs/status.md). Start with [docs/HANDOFF.md](docs/HANDOFF.md).
+
 Open items and decisions: [docs/agent.md](docs/agent.md#decisions-and-open-items). Golden questions (to be written): [docs/golden_questions.md](docs/golden_questions.md).

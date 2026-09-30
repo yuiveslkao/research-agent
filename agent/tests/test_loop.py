@@ -60,7 +60,12 @@ def test_campaign_runs_until_critic_accepts(root, tmp_path):
     text = res.report_path.read_text()
     assert "Does the error decay?" in text and "scope too broad" in text and "reproduced claim" in text
     assert "## Outcome" in text and text.index("## Outcome") < text.index("## Notes")
-    assert "**Accepted claim**" in text and "evidence (server-derived)" in text
+    assert "**Critic's last verdict: could not break it.**" in text and "evidence (server-derived)" in text
+    assert "Accepted" not in text and "stablished" not in text and "## Claims and status" in text
+    rep = json.loads(res.report_path.with_suffix(".json").read_text())
+    assert rep["schema"] == "report/0.1" and rep["campaign"]["stopped_by"] == "accepted"
+    st = {c["statement"]: c["status"]["effective"] for c in rep["claims"]}
+    assert st == {"H1": "numerically-supported", "H2": "numerically-supported"}
     assert text.count("| experiment |") == 4 and "researcher round 2 ok" in text
     meta = json.loads((res.report_path.parent / "campaign.json").read_text())
     assert meta["max_runs"] == 20
@@ -188,8 +193,8 @@ def test_second_campaign_is_seeded_with_earlier_accepted_claims(root, tmp_path):
     second = run_campaign("Q2?", rounds=1, root=root, agent=Quiet(), max_runs=20)
     ctx = Ctx(Settings(root=root, role="human", executor="local"))
     seed = tools.notes_mod.read_notes(ctx.paths.ledger, second.campaign_id)[0]["text"]
-    assert seed.startswith("Q2?") and "Established by earlier campaigns" in seed
-    assert "ACCEPTED" in seed and "reproduced claim" in seed
+    assert seed.startswith("Q2?") and "Earlier campaigns' claims with their status" in seed
+    assert "numerically-supported, not a proof" in seed and "supported only as: reproduced claim" in seed
     third = run_campaign("Q3?", rounds=1, root=root, agent=Quiet(), max_runs=20, prior=False)
     assert tools.notes_mod.read_notes(ctx.paths.ledger, third.campaign_id)[0]["text"] == "Q3?"
 

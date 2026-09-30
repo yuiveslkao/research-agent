@@ -22,7 +22,7 @@ from pathlib import Path
 import anyio
 import yaml
 
-from .install_profiles import COMMON_TOOLS, ROLES
+from .install_profiles import ROLES, tools_for
 from .loop import HermesCLI
 
 # Built-in Hermes toolsets that would let a profile act outside the research tools.
@@ -155,8 +155,8 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
         f.append(Finding("warn", "tools.prompts/tools.resources are not false: Hermes adds 4 unused utility tools "
                                  "(list/get prompts, list/read resources) to every request (re-run the installer)"))
     include = tcfg.get("include") or []
-    if sorted(include) != sorted(COMMON_TOOLS):
-        f.append(Finding("warn", f"tools.include differs from the expected list: {sorted(set(COMMON_TOOLS) ^ set(include))}"))
+    if sorted(include) != sorted(tools_for(role)):
+        f.append(Finding("warn", f"tools.include differs from the expected list: {sorted(set(tools_for(role)) ^ set(include))}"))
 
     enabled = {p: v for p, v in (cfg.get("platform_toolsets") or {}).items() if v}
     if not enabled:
@@ -170,7 +170,7 @@ def check_profile(role: str, hermes_home: Path, root: Path, ask: bool = False, t
     with tempfile.TemporaryFile("w+") as err:
         try:
             names, call = anyio.run(_probe_mcp, entry, err)
-            missing = sorted(set(COMMON_TOOLS) - set(names))
+            missing = sorted(set(tools_for(role)) - set(names))
             f.append(Finding("fail" if missing else "ok",
                              f"MCP server starts; tools: {len(names)}" + (f"; missing {missing}" if missing else "")))
             f.append(Finding("ok" if call == "ok" else "fail", f"read_notes call: {call}"))

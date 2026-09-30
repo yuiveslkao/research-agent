@@ -1,6 +1,6 @@
 import yaml
 
-from researchagent.install_profiles import COMMON_TOOLS, DISABLED_TOOLSETS, TOOL_TIMEOUT_S, install
+from researchagent.install_profiles import COMMON_TOOLS, DISABLED_TOOLSETS, TOOL_TIMEOUT_S, install, tools_for
 
 
 def test_install_merges_without_clobbering(tmp_path):
@@ -31,6 +31,8 @@ def test_install_fresh_profile_and_researcher_soul(tmp_path):
     p = install("researcher", tmp_path / "repo", tmp_path / "h", create=False)
     assert "Epistemic rules" in (p / "SOUL.md").read_text()
     cfg = yaml.safe_load((p / "config.yaml").read_text())
+    inc = cfg["mcp_servers"]["research"]["tools"]["include"]
+    assert inc == tools_for("researcher") and "submit_proof" in inc and "submit_proof" not in COMMON_TOOLS
     assert cfg["agent"]["max_turns"] == 60 and cfg["agent"]["run_budget_seconds"] == 1200
     assert cfg["compression"]["enabled"] is False                 # explicit, same in both profiles
     assert cfg["memory"] == {"memory_enabled": False, "user_profile_enabled": False}

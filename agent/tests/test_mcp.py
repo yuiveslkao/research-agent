@@ -41,7 +41,7 @@ def test_tools_listed_with_contract_in_description(root, tmp_path):
     tools = _drive(root, tmp_path, "researcher", fn)
     assert {"submit_experiment", "submit_check", "inspect_run", "read_artifact", "list_runs",
             "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv",
-            "submit_falsify_bound"} <= set(tools)
+            "submit_falsify_bound", "submit_proof"} <= set(tools)
     assert "Prelude.jl" in tools["submit_experiment"].description
     assert "margin(theta" in tools["submit_check"].description
 
@@ -68,3 +68,30 @@ def test_full_tool_round_trip(root, tmp_path):
     assert bad["ok"] is False and "invalid run id" in bad["error"]      # errors are data, not protocol errors
     assert note["kind"] == "hypothesis"
     assert crit["ok"] is False and "may not write" in crit["error"]
+
+
+def test_over_mcp_the_ai_reaches_proven_ai_but_never_proven(root, tmp_path):
+    from researchagent import status
+    proof = "Lemma 1 and its proof. " * 12
+
+    async def researcher(s):
+        await s.call_tool("add_note", {"kind": "hypothesis", "claim": {"statement": "H", "scope": "s", "refuted_if": "r"}})
+        run = _payload(await s.call_tool("submit_experiment", {"title": "t", "hypothesis": "h", "script": "println(1)\n"}))
+        f = _payload(await s.call_tool("add_note", {"kind": "finding", "run_ids": [run["run_id"]],
+                                                    "claim": {"statement": "held", "scope": "s", "result": "supports"}}))
+        cid = f["claim_status"]["claim"]
+        bad = [_payload(await s.call_tool("add_note", {"kind": "decision", "status": "proven", "text": "x"})),
+               _payload(await s.call_tool("add_note", {"kind": "critique", "status": "proven", "run_ids": [run["run_id"]],
+                                                       "claim": {"statement": "H", "scope": "s"}}))]
+        p = _payload(await s.call_tool("submit_proof", {"claim": cid, "statement": "H", "scope": "s", "proof": proof}))
+        claims = _payload(await s.call_tool("read_claims", {}))
+        return cid, bad, p, claims
+    cid, bad, p, claims = _drive(root, tmp_path, "researcher", researcher)
+    assert all(b["ok"] is False for b in bad)                         # errors as data, no protocol error
+    assert p["status"] == "proven_AI" and claims["claims"][0]["status"] == "proven_AI"
+
+    async def critic(s):
+        return _payload(await s.call_tool("submit_proof", {"claim": cid, "statement": "H", "scope": "s", "proof": proof}))
+    assert "may not use this tool" in _drive(root, tmp_path, "critic", critic)["error"]
+    snap = status.Snapshot(root / "ledger")
+    assert snap.view(cid)["effective"] == "proven_AI" and all(r["source"] != "human" for r in snap.history)

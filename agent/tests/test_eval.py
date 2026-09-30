@@ -1,7 +1,7 @@
 """Evaluation: sealed EV- campaigns, golden-question files, scoring, runner, grades and summaries."""
 import pytest
 
-from conftest import FND, HYP
+from conftest import FND, HYP, STEPS, GOOD_CHECK
 from researchagent import claims, status, tools
 from researchagent.config import set_current_campaign
 from researchagent.tools import ToolError
@@ -51,6 +51,7 @@ import json
 from pathlib import Path
 
 from researchagent import evaluation as ev
+from researchagent import proofs as proofs_mod
 from researchagent.config import Ctx, Settings
 
 REPO_QUESTIONS = Path(__file__).resolve().parents[2] / "eval" / "questions"
@@ -76,11 +77,15 @@ class MatAgent:
                 tools.add_note(c, "finding", run_ids=[r], claim={
                     "statement": "A = [1 0; 0 0] has bounded powers and is neither nilpotent nor a permutation",
                     "scope": "N = 2", "result": "refutes", "counterexample": r})
-            else:
-                tools.add_note(c, "finding", run_ids=[r], claim=FND("held for N = 1", scope="N = 1"))
-                tools.submit_proof(c, h, STMT, "N <= 3", PROOF)
+            else:                                   # checks only N = 1, then "proves" the statement
+                chk = tools.submit_check(c, "exhaustive", "One", "One", "module One\nconst DOMAIN = (N = 1:1,)\n"
+                                         "holds(θ) = true\nend\n")["run_id"]
+                tools.add_note(c, "finding", run_ids=[r, chk], claim=FND("held for N = 1", scope="N = 1"))
+                tools.submit_proof(c, h, STMT, "N <= 3", STEPS())
             tools.add_note(c, "decision", "done", status="conclude")
             return "researcher done"
+        for pid in proofs_mod.pending(c.paths.ledger, c.campaign["id"]):
+            tools.review_proof(c, pid, "accept")          # a colluding reviewer, for the bad agent
         last = tools.list_runs(c)[-1]["run_id"]
         rr = tools.rerun_run(c, last)
         tools.add_note(c, "critique", status="accept", run_ids=[last, rr["rerun"]],
@@ -94,7 +99,7 @@ def mat02():
 
 def test_shipped_questions_are_valid():
     qs = ev.find_questions([REPO_QUESTIONS])
-    assert {"GQ-MAT-01", "GQ-MAT-02", "GQ-DE-01", "GQ-DE-02", "GQ-OOS-01"} <= set(qs)
+    assert {"GQ-MAT-01", "GQ-MAT-02", "GQ-DE-01", "GQ-DE-02", "GQ-OOS-01", "GQ-PRF-01"} <= set(qs)
     assert {q["type"] for q in qs.values()} >= {"proof-required", "refute-false-statement", "planted-flaw",
                                                  "rate-estimation", "out-of-scope"}
     assert all(q["split"] == "dev" for q in qs.values())            # hold-out questions live outside the repo
@@ -163,11 +168,14 @@ class HAgent:
         if profile == "researcher":
             h = tools.add_note(c, "hypothesis", claim=HYP("H"))["id"]
             r = tools.submit_experiment(c, "t", "h", script=SCRIPT)["run_id"]
-            tools.add_note(c, "finding", claim=FND("H held"), run_ids=[r])
+            chk = tools.submit_check(c, "falsify", "Good", "Good", GOOD_CHECK)["run_id"]
+            tools.add_note(c, "finding", claim=FND("H held"), run_ids=[r, chk])
             if self.prove:
-                tools.submit_proof(c, h, "H", "test scope", PROOF)
+                tools.submit_proof(c, h, "H", "test scope", STEPS())
             tools.add_note(c, "decision", "done", status="conclude")
         else:
+            for pid in proofs_mod.pending(c.paths.ledger, c.campaign["id"]):
+                tools.review_proof(c, pid, "accept")
             r = tools.list_runs(c)[-1]["run_id"]
             tools.rerun_run(c, r)
             tools.add_note(c, "critique", status="accept", claim={"statement": "H", "scope": "test scope"}, run_ids=[r])

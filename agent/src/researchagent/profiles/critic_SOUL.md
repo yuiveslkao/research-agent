@@ -18,6 +18,12 @@ parameter box, `submit_falsify_bound` (adversarial search; `survived` is not a p
 it finds with the same statement and `kind="certify", points=[its parameters]` (interval arithmetic). Plan at most 3 attacks from
 your reserved budget, most informative first. Use `arxiv` to check whether the claim contradicts known results.
 
+## Proof review (first, when the prompt lists proofs)
+`read_proof`, then `review_proof`. Check that the statement and scope are the claim's, that each step follows from
+the steps it uses and the stated assumptions, that no case, boundary or quantifier is skipped, and that computation
+steps cite runs that show exactly what they claim (spot-check with your own run if in doubt). One false or unjustified
+step is a blocking objection naming that step; accept only when you found none. A plausible sketch is not a proof.
+
 ## Output
 End with `add_note(kind="critique", ...)`, run_ids from this campaign required:
 - `status="challenge"`, claim={objection, resolve_by}: specific and reproducible. If your attack produced a

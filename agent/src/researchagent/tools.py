@@ -2,7 +2,8 @@
 
 Trust boundary: agents can only (1) write Julia source under workspace/agent/{experiments,statements}
 via the lab worktree, (2) start runs through the harness (Docker, no network, capped resources),
-(3) read records, (4) write role-restricted notes, (5) store a proof record (derived status proven_AI).
+(3) read records, (4) write role-restricted notes, (5) store a proof record and review another role's proof
+(an accepted review makes the derived status proven_AI).
 They cannot write run records, grades, statuses, checkers, the library, or anything else. Human statuses
 (including `proven`) are written only by status.set_human_status via the research-claims CLI.
 """
@@ -25,6 +26,7 @@ from rharness.store import get_path
 from . import claims as claims_mod
 from . import glossary
 from . import notes as notes_mod
+from . import proofs as proofs_mod
 from . import status as status_mod
 from . import templates, tomlw
 from .arxiv import ArxivError
@@ -590,25 +592,59 @@ def add_note(ctx: Ctx, kind: str, text: str = "", status: str | None = None,
     return out
 
 
-def submit_proof(ctx: Ctx, claim: str, statement: str, scope: str, proof: str,
-                 supporting_runs: list[str] | None = None) -> dict:
-    """Store a complete written proof of the exact current version of a claim; its status becomes proven_AI."""
+def submit_proof(ctx: Ctx, claim: str, statement: str, scope: str, steps: list[dict],
+                 assumptions: list[str] | None = None) -> dict:
+    """Store a structured proof of the exact current version of a claim; it awaits the critic's review pass."""
     _require_role(ctx, {"researcher", "human"})
-    runs = list(supporting_runs or [])
-    for r in runs:
-        _check_run_id(r)
     if not isinstance(claim, str) or not claim:
         raise ToolError("claim must be the claim's current version id (N-..., from read_claims)")
     if _sealed(ctx):
         h = status_mod.Snapshot(ctx.paths.ledger).hyps.get(claim)
         if h is None or h["campaign"] != ctx.campaign["id"]:
             raise ToolError(f"unknown claim {claim!r} in this campaign")
+    for st in steps if isinstance(steps, list) else []:
+        for r in (st.get("runs") or []) if isinstance(st, dict) else []:
+            _load(ctx, r)                                   # run ids valid and visible to this campaign
     try:
-        rec = status_mod.add_proof(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], claim, statement, scope,
-                                   proof, runs)
+        rec = proofs_mod.submit(ctx.paths.ledger, ctx.settings.role, ctx.campaign["id"], claim, statement, scope,
+                                steps, assumptions)
     except status_mod.StatusError as e:
         raise ToolError(str(e)) from e
-    return {"proof": rec["id"], "claim": rec["claim"], "status": "proven_AI", "meaning": glossary.MEANING["proven_AI"]}
+    return {"proof": rec["id"], "claim": rec["claim"], "state": "pending",
+            "next": "the critic reviews it; the status becomes proven_AI only if the review accepts it"}
+
+
+def _visible_proof(ctx: Ctx, proof: str) -> tuple[status_mod.Snapshot, dict]:
+    snap = status_mod.Snapshot(ctx.paths.ledger)
+    try:
+        p = proofs_mod.find(snap, proof)
+    except status_mod.StatusError as e:
+        raise ToolError(str(e)) from e
+    if _sealed(ctx) and p.get("campaign") != ctx.campaign["id"]:
+        raise ToolError(f"unknown proof {proof!r}")
+    return snap, p
+
+
+def read_proof(ctx: Ctx, proof: str) -> dict:
+    snap, p = _visible_proof(ctx, proof)
+    return proofs_mod.view(snap, p)
+
+
+def review_proof(ctx: Ctx, proof: str, verdict: str, objections: list[dict] | None = None,
+                 run_ids: list[str] | None = None) -> dict:
+    """The review pass (critic): accept, or object with at least one blocking objection naming a step."""
+    _require_role(ctx, {"critic"})
+    _visible_proof(ctx, proof)
+    for r in run_ids or []:
+        _load(ctx, r)
+    try:
+        rec = proofs_mod.review(ctx.paths.ledger, proof, ctx.settings.role, ctx.campaign["id"], verdict, objections,
+                                run_ids)
+    except status_mod.StatusError as e:
+        raise ToolError(str(e)) from e
+    snap = status_mod.Snapshot(ctx.paths.ledger)
+    return {"proof": proof, "verdict": rec["verdict"], "claim": rec["claim"],
+            "claim_status": snap.derive(snap.head(rec["claim"])["id"])["status"]}
 
 
 def read_notes(ctx: Ctx, kind: str | None = None, limit: int = 30) -> list[dict]:

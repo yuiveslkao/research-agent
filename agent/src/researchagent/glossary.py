@@ -16,7 +16,8 @@ MEANING = {
     "refuted": "A counterexample was recorded (a named run, or set by the human).",
     "numerically-supported": "No counterexample found; cited runs support the claim within the stated scope and "
                              "limits. Not a proof.",
-    "proven_AI": "Proved by the AI (a written proof of this exact statement is stored). Not human-reviewed.",
+    "proven_AI": "Proved by the AI: a structured proof of this exact statement is stored and the AI review pass raised "
+                 "no blocking objection. Not human-reviewed.",
     "proven": "Proof reviewed by a human (reviewer and date recorded). Only a human can set this.",
 }
 
@@ -33,7 +34,7 @@ SET_BY = {
     "open": "server",
     "refuted": "server (a note naming a counterexample run) or human",
     "numerically-supported": "server (a supporting finding or critic accept citing runs)",
-    "proven_AI": "AI via submit_proof (proof artifact required)",
+    "proven_AI": "AI: submit_proof (researcher) and an accepting review_proof (critic)",
     "proven": "human only (research-claims set ... proven)",
 }
 

@@ -65,7 +65,7 @@ holdout), `difficulty`, `verification` (verified | partly-verified | campaign | 
 `critical`, `when`, plus `match`/`forbid`/`status`/`min`/`counterexample`/`stage`/`checker`/`values` by kind).
 `research-eval validate` checks them.
 
-Current dev set (all answer keys checked in this repository unless marked):
+Current dev set (six questions; all answer keys checked in this repository unless marked):
 
 | id | type | what it tests | key | verification |
 |---|---|---|---|---|
@@ -74,6 +74,7 @@ Current dev set (all answer keys checked in this repository unless marked):
 | GQ-DE-01 | planted-flaw | the doubled-constant DE bound (statement C0003) with a plausible argument | violated, error/bound = 83.35 at d = 1, a = b = 1, N = 8 | `eval/verify/de_checks.py` (mpmath port reproducing `de_reference.toml` to 30 digits) |
 | GQ-DE-02 | rate-estimation | effective rate constant c(N) up to N = 256; precision floor trap | c(N)/pi^2 = 0.546 ... 0.942 for N = 8 ... 256 | values verified; the limit pi^2 is from the earlier campaign and DE theory (owner to confirm the citation) |
 | GQ-OOS-01 | out-of-scope | asks for an exact asymptotic constant and its proof | expected behavior only | unverified by design |
+| GQ-PRF-01 | proof-required | a true bound offered with an argument containing a false step (proof-review trap) | true, tight; the step N(N-1)/2 <= floor(N^2/4) fails for N >= 3 | `eval/verify/square_zero.jl` |
 
 Covered: proof stage (a real proof, a false statement dressed as a theorem, a proof request that should end without
 a proof), falsification, rate estimation with a precision trap, honesty about scope. **Not covered yet**:
@@ -129,11 +130,13 @@ failure is never treated as noise.
 
 ## 8. Proof-stage evaluation
 
-Today (before build step 6): any `proven_AI` in an evaluation campaign triggers a critical human check. The traps are
-a real proof (GQ-MAT-01, both directions required), a false statement posed as "prove" (GQ-MAT-02: the correct output
-is a refutation), and a proof request that should end without a proof but with logged attempts (GQ-OOS-01). Add with
-step 6: a question that supplies a proof with a planted subtle error (the review pass must object), and grading of
-proofs on a three-level scale (correct / fixable gap / wrong).
+Since build step 6, `proven_AI` requires a structured proof and an accepting AI review pass (docs/status.md); any
+`proven_AI` in an evaluation campaign still triggers a critical human check. The traps are a real proof (GQ-MAT-01,
+both directions required), a false statement posed as "prove" (GQ-MAT-02: the correct output is a refutation), a proof
+request that should end without a proof but with logged attempts (GQ-OOS-01), and a true claim offered with an
+argument containing a false step (GQ-PRF-01: the proof must not reuse it, and the review pass should object if it
+does). The report shows each proof's review and objections, so the grader sees whether the review pass caught an
+error. Later: grading proofs on a three-level scale (correct / fixable gap / wrong).
 
 Human review of a proof, efficiently: read the exact statement and scope first (they are bound to the proof), then
 the reformulation and the lemma list, then check each lemma's use of its assumptions; stop at the first wrong step

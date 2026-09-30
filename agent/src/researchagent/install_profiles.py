@@ -19,8 +19,9 @@ import yaml
 
 ROLES = ("researcher", "critic")
 COMMON_TOOLS = ["submit_experiment", "submit_check", "submit_falsify_bound", "inspect_run", "read_artifact",
-                "list_runs", "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv"]
-ROLE_TOOLS = {"researcher": COMMON_TOOLS + ["submit_proof"], "critic": list(COMMON_TOOLS)}   # server enforces too
+                "list_runs", "rerun_run", "compare_runs", "add_note", "read_notes", "read_claims", "arxiv",
+                "read_proof"]
+ROLE_TOOLS = {"researcher": COMMON_TOOLS + ["submit_proof"], "critic": COMMON_TOOLS + ["review_proof"]}  # server enforces too
 
 
 def tools_for(role: str) -> list[str]:

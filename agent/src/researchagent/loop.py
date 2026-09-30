@@ -19,6 +19,7 @@ from typing import Protocol
 
 from . import claims as claims_mod
 from . import notes as notes_mod
+from . import proofs as proofs_mod
 from . import report as report_mod
 from . import tools, usage
 from .config import Ctx, Settings, isolated, set_current_campaign
@@ -83,8 +84,10 @@ def researcher_prompt(question: str, rnd: int, rounds: int) -> str:
             "Follow your round procedure (read_notes first). Use only the research tools.")
 
 
-def critic_prompt(question: str, rnd: int, rounds: int) -> str:
-    return (f"Round {rnd}/{rounds}, critic turn. Question:\n{question}\n\n"
+def critic_prompt(question: str, rnd: int, rounds: int, pending_proofs: list[str] | None = None) -> str:
+    review = (f"First review these proofs (read_proof, then review_proof): {', '.join(pending_proofs)}. "
+              if pending_proofs else "")
+    return (f"Round {rnd}/{rounds}, critic turn. Question:\n{question}\n\n{review}"
             "Read the notes and the runs they cite, run at least one independent attack, then record your "
             "critique. If the researcher recorded nothing new this round, challenge that.")
 
@@ -244,14 +247,17 @@ def run_campaign(question: str | None, rounds: int, root: Path, agent: Agent, ma
                 if not (rnd == start_round and start_role == "critic"):
                     transcript.append((rnd, "researcher", turn(rnd, "researcher", researcher_prompt(question, rnd, rounds))))
                 before = critic_runs()
-                transcript.append((rnd, "critic", turn(rnd, "critic", critic_prompt(question, rnd, rounds))))
+                prompt = critic_prompt(question, rnd, rounds, proofs_mod.pending(ledger, cid))
+                transcript.append((rnd, "critic", turn(rnd, "critic", prompt)))
                 attacked = critic_runs() > before
                 if campaign_state(notes_mod.read_notes(ledger, cid, limit=100_000))["accepted"]:
-                    if attacked:
+                    unreviewed = proofs_mod.pending(ledger, cid)
+                    if attacked and not unreviewed:
                         stopped_by = "accepted"
                         break
-                    transcript.append((rnd, "driver", "Critique 'accept' ignored: the critic ran no independent "
-                                                      "attack (no run or check) this round."))
+                    why = ("the critic ran no independent attack (no run or check) this round" if not attacked
+                           else f"proofs still await review: {', '.join(unreviewed)}")
+                    transcript.append((rnd, "driver", f"Critique 'accept' ignored: {why}."))
     except Exception as e:  # agent/CLI failure: keep everything recorded so far
         stopped_by = f"error: {e}"
         errors.append(str(e))

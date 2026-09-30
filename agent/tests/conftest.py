@@ -73,3 +73,41 @@ def FND(text="F", result="supports", **kw):
 
 ACC = {"statement": "the supported claim", "scope": "test scope", "limits": "tested range only"}
 CHAL = {"objection": "not convinced: scope too broad", "resolve_by": "a wider sweep"}
+
+
+GOOD_CHECK = "module Good\nconst DOMAIN = (N = 8:16,)\nmargin(t, ::Type{T}) where {T<:Real} = one(T)\nend\n"
+ARG = ("Write E(N) for the quadrature error and use the strip of analyticity of the transformed integrand; the "
+       "discretization error is bounded by the integral of the integrand over the strip boundary, which is finite by "
+       "the assumptions on a and b. ")
+
+
+def STEPS(runs=None):
+    """A minimal well-formed structured proof: one lemma, optionally a computation step, and the conclusion."""
+    steps = [{"id": "L1", "kind": "lemma", "statement": "the discretization error is bounded", "proof": ARG, "uses": []}]
+    if runs:
+        steps.append({"id": "K1", "kind": "computation", "statement": "the constant is below 1 for N <= 16",
+                      "proof": "see the cited run", "uses": [], "runs": list(runs)})
+    steps.append({"id": "C", "kind": "conclusion", "statement": "the claim follows",
+                  "proof": "Combine L1 with the truncation estimate. " + ARG,
+                  "uses": ["L1"] + (["K1"] if runs else [])})
+    return steps
+
+
+def survive(cri, about, run_ids=()):
+    """The critic runs a passing falsify check and accepts the claim citing it (a survived check in its support)."""
+    from researchagent import tools
+    chk = tools.submit_check(cri, "falsify", "Good", "Good", GOOD_CHECK)["run_id"]
+    tools.add_note(cri, "critique", status="accept", run_ids=[chk, *run_ids],
+                   claim={"statement": "held on the tested range", "scope": "test scope", "about": about})
+    return chk
+
+
+def prove(res, cri, h, statement="H", scope="test scope", verdict="accept", runs=None, objections=None):
+    """Submit a structured proof of claim version h and have the critic review it; returns the proof id."""
+    from researchagent import tools
+    pid = tools.submit_proof(res, h, statement, scope, STEPS(runs))["proof"]
+    if verdict:
+        tools.review_proof(cri, pid, verdict, objections or (
+            [{"step": "L1", "issue": "the bound on the strip boundary is not justified", "severity": "blocking"}]
+            if verdict == "object" else []))
+    return pid

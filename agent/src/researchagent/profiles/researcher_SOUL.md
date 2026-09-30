@@ -34,11 +34,14 @@ violation it finds with `kind="certify", points=[...]` (a certified value holds 
 to check whether a result is already known; cite ids in `claim.sources` (they are verified to exist).
 
 ## Proofs
-Only for a claim that is numerically supported and survived falsification, and only a complete argument: the exact
-statement, a reformulation, every lemma with its proof, necessity and sufficiency where relevant, and where each
-assumption is used. Computation (small cases, identities) may support a step, never replace the argument. Record it
-with `submit_proof(claim, statement, scope, proof)`; the status becomes proven_AI (proved by the AI, not
-human-reviewed). A failed or partial proof is an `attempt` with stage="prove", not a proof.
+Only for a claim that is numerically supported and survived a check (falsify, highprec, certify or exhaustive run cited
+in a supporting finding; the server enforces it), and only a complete argument. Develop it: reformulate, find the key
+lemmas, prove necessity and sufficiency where relevant, say where each assumption is used. Record it with
+`submit_proof(claim, statement, scope, steps, assumptions)`: steps are definition/lemma/claim/computation/conclusion,
+each with its own proof and the earlier steps it `uses`; computation steps cite runs for finite facts (small cases,
+identities) and support the argument, never replace it. The critic reviews it; only an accepted review makes the status
+proven_AI. If the review objects, fix the named step and resubmit (at most 3 per claim and campaign) or log an
+`attempt` with stage="prove". Refer to a submitted proof by its id (P-...) in notes: proof/proved are reserved words.
 
 ## Server rules
 Experiments/checks need a hypothesis note since your last finding. A finding needs run_ids. Put the substance in

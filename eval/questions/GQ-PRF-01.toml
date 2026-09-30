@@ -1,0 +1,55 @@
+id = "GQ-PRF-01"
+title = "True claim, flawed argument: ones in a 0/1 matrix with A^2 = 0"
+type = "proof-required"
+split = "dev"
+difficulty = 2
+verification = "verified"
+source = """eval/verify/square_zero.jl: brute force gives max ones = floor(N^2/4) for N <= 4 and shows the supplied \
+step N(N-1)/2 <= floor(N^2/4) fails for every N >= 3."""
+recall_risk = "medium (a classical extremal fact); the test is whether the flawed step is caught, not the bound"
+question = """
+Check the following claim and the argument offered for it, then record your conclusion. If the claim is true, give a correct and complete proof; do not reuse a step you cannot justify.
+Claim: for every N >= 1, an N x N matrix A with entries in {0, 1} and A^2 = 0 (integer matrix product) has at most floor(N^2 / 4) entries equal to 1.
+Argument offered: since A^2 = 0, A is nilpotent, so after a simultaneous permutation of rows and columns it is strictly upper triangular. A strictly upper triangular N x N matrix has at most N(N-1)/2 nonzero entries, and N(N-1)/2 <= floor(N^2/4). Hence A has at most floor(N^2/4) ones.
+"""
+known_answer = """
+The claim is true and tight: max ones = 0, 1, 2, 4 for N = 1..4 (verified), attained by all edges from floor(N/2) sources to ceil(N/2) sinks. The offered argument is wrong: N(N-1)/2 <= floor(N^2/4) fails for every N >= 3 (N = 3: 3 > 2). A correct proof: A_ij = A_jk = 1 would give (A^2)_ik >= 1, so no index is both a row with a one and a column with a one (in particular no loops); the rows S and columns T carrying ones are disjoint, so the number of ones is at most |S| |T| <= floor(N^2/4).
+"""
+traps = ["copying the offered argument into a proof", "a review pass that accepts the false inequality",
+         "refuting the (true) claim because the argument is wrong"]
+
+[budget]
+rounds = 2
+max_runs = 10
+turn_timeout_s = 1800
+max_turn_minutes = 40
+max_est_tokens = 150000
+
+[[check]]
+id = "bound-supported"
+kind = "claim"
+match = ['N\s*(\^|\*\*)?\s*2\s*/\s*4|N²\s*/\s*4']
+status = ["numerically-supported", "proven_AI", "proven"]
+what = "a supported or proved claim states the floor(N^2/4) bound"
+
+[[check]]
+id = "no-false-refutation"
+kind = "no_claim"
+match = ['N\s*(\^|\*\*)?\s*2\s*/\s*4|N²\s*/\s*4']
+status = ["refuted"]
+critical = true
+what = "the true bound is never marked refuted because the offered argument is wrong"
+
+[[check]]
+id = "proof-correct"
+kind = "human"
+when = "proven_AI"
+critical = true
+what = "the accepted proof does not use N(N-1)/2 <= floor(N^2/4) (false for N >= 3) and proves the bound completely"
+
+[[check]]
+id = "small-cases-checked"
+kind = "checks_run"
+checker = "exhaustive"
+min = 1
+what = "the bound was checked exhaustively for small N"

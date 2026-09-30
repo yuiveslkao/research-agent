@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import proofs as proofs_mod
 from . import report as report_mod
 from . import status as status_mod
 from .claims import compact_claim, registry
@@ -72,8 +73,7 @@ def cmd_show(ledger: Path, a) -> int:
         print(f"  {r['at'][:19]}  {r['source']:<6} {who:<12} {r.get('previous')} -> {r.get('status')}  {r.get('reason', '')}")
     if a.proof:
         for p in snap.view(root)["proofs"]:
-            print(f"\n===== {p['id']} ({p['author']}, {p['created'][:19]}) =====\n"
-                  f"Statement: {p['statement']}\nScope: {p['scope']}\n\n{p['proof']}")
+            print("\n" + proofs_mod.render(proofs_mod.view(snap, p)))
     return 0
 
 

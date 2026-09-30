@@ -25,7 +25,8 @@ research-loop (driver, Python) ── hermes -p researcher -z "<round prompt>"  
 | `submit_falsify_bound` | both | Try to break `|error| <= bound` for the DE testbed over a parameter box, from a bound expression (no Julia to write) |
 | `add_note`, `read_notes` | both | Structured notes (see below). Researcher writes hypothesis/finding/decision; Critic writes critique; both write attempt |
 | `read_claims` | both | Claims across all campaigns with their status, grade, critic verdict, counterexample; open objections; failed attempts |
-| `submit_proof` | researcher | Store a written proof bound to a claim's exact text; derived status becomes `proven_AI` (not human-reviewed) |
+| `submit_proof` | researcher | Store a structured proof (steps with dependencies) bound to a claim's exact text; allowed after the claim survived a check |
+| `read_proof`, `review_proof` | both / critic | Read a proof with its reviews; the critic's review pass (accept, or object naming a step). Only an accepted proof makes the status `proven_AI` |
 | `arxiv` | both | Search arXiv or look one paper up by id (short records, cached, untrusted text) |
 
 Loop: **hypothesis -> experiment -> inspect -> finding -> decision(continue|conclude) -> critic attack -> critique(accept|challenge)**.
@@ -120,7 +121,7 @@ a critique it starts with the critic, otherwise with the next researcher turn. R
 
 ## What is verified and what is not
 
-Verified in the development sandbox (109 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
+Verified in the development sandbox (125 agent tests, 24 harness tests, no LLM; Julia checkers with Julia 1.9.4 when
 `RESEARCH_TEST_JULIA` is set, everything else with a fake Julia):
 - Tool behaviour, caps, budget, role checks, path/ID validation, lab isolation (agent code never lands on your branch).
 - The real MCP stdio protocol with the official Python client (tool list, descriptions, calls, error results).
@@ -132,6 +133,8 @@ Verified in the development sandbox (109 agent tests, 24 harness tests, no LLM; 
   `proven`.
 - Interval arithmetic (`checkers/test_intervals.jl`) and the `certify` checker on the real DE library and statements.
 - The exact toolkit (`workspace/library/test_exact.jl`) and the `exhaustive` checker on exact statements.
+- Proof stage: step validation, the start rule, attempt limits, the review pass, integrity of proof records, and that
+  a campaign does not end while a proof awaits review.
 - Evaluation: run visibility (`code.paths`), sealed `EV-` campaigns, question validation, scoring with scripted good
   and bad agents (a false proof is a critical failure), human grades and overrides, summaries, the `research-eval` CLI.
 
@@ -151,8 +154,8 @@ Verified in the development sandbox (109 agent tests, 24 harness tests, no LLM; 
 - Notes are free text: the driver reads only `status` fields, not the content.
 - The Critic's attack is checked for existence, not quality.
 - `certify` encloses a statement's margin at finitely many points (interval arithmetic); there is no certification over a
-  whole continuous box (branch and bound), no proof checking (`proven_AI` is stored text, not verified), no proof-stage workflow or
-  review pass, no novelty search.
+  whole continuous box (branch and bound), no formal proof checking (`proven_AI` means an AI review pass accepted the
+  proof, not that it is correct), no novelty search.
 
 ## Decisions and open items
 

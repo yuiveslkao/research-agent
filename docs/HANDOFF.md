@@ -34,7 +34,7 @@ The system should automate that whole classification and never blur the classes.
 | 1 intake | question in, decomposed into hypotheses | one free-text question file; the agent writes one hypothesis note at a time |
 | 2 explore | exhaustive/small-case experiments, conjecture generation | Julia experiments via the harness (`submit_experiment`); tuned for real-valued error sweeps; no exact-arithmetic or enumeration toolkit, no pattern discovery |
 | 3 falsify | try to disprove | `falsify` (multi-start search on a bound, BigFloat) and `highprec` checks; Critic role with independent reruns/reimplementations. Search effort, not certificates |
-| 4 prove | prove survivors | `submit_proof` stores a written proof bound to the claim's exact text (status `proven_AI`); no workflow, budget, review pass or checking yet |
+| 4 prove | prove survivors | structured proofs (`submit_proof`, steps with dependencies) allowed after a survived check, at most 3 per claim and campaign; the critic's review pass (`review_proof`) must accept before `proven_AI`; no formal checking |
 | 5 report | proved results to the human | `report.json` (schema `report/0.1`) with claims, statuses, evidence, proofs, attempts, history, reproduction commands; `report.md` derived from it; `research-claims queue` for review |
 | classification | proven / numerically supported / incorrect | `open`, `refuted` (named counterexample), `numerically-supported`, `proven_AI`, `proven` (human-only), derived + human side by side with history; evidence grades alongside |
 
@@ -140,7 +140,7 @@ Research scope (Tanaka-style numerical analysis): (1) sampling/discretization wi
 - Decided: stop as soon as a counterexample is found; no certification step is required before `refuted`.
 - Decided: correlated errors between Researcher and Critic are not a concern for now.
 
-### 5.4 Proof stage (stage 4, entirely unbuilt)
+### 5.4 Proof stage (stage 4; defaults implemented in build step 6, see status.md)
 - Decided: the LLM (Claude) writes the proof itself; computer assistance is supporting only (section 2).
 - Still to design: when a proof attempt starts (which hypotheses, after which falsification effort), the budget and stop rule,
   the proof artifact format (structured steps with each lemma and its dependencies, plus the exact statement proved), how
@@ -200,8 +200,7 @@ silent Hermes failures (exit 2 with hidden errors), goodhart on golden questions
 3. **Done** (section 9). Design the evaluation (successor's task, section 5.8) and build its runner; include proof-stage traps.
 4. **Done** (section 9). (Optional, supporting only) interval-arithmetic checker and record type.
 5. **Done** (section 9). Exact/finite exploration toolkit (enumeration, integer arithmetic) and checker support for non-real statements.
-6. Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
-   (Storage, binding and the queue exist; the workflow, structured proof format and review pass do not.)
+6. **Done** (section 9). Proof stage: the LLM writes the proof; store it as an artifact bound to the claim; add a review pass and the human review queue.
 7. Novelty search and human review loop.
 8. Compute expansion (TSUBAME, GPU) only when a real question needs it.
 
@@ -318,3 +317,24 @@ policy, cost ceilings, proof-stage evaluation, a one-evening first version).
 - Not done from HANDOFF 5.2: SAT/ILP/constraint solvers and symbolic tools (need packages the run sandbox cannot
   download; add them to the pinned environment first), OEIS lookups (literature is arXiv-only by decision).
 - Tests: 109 agent tests with `RESEARCH_TEST_JULIA` (104 plus 5 skipped without), 24 harness tests.
+
+### Build step 6: proof stage (same branch)
+
+Details and the defaults chosen for HANDOFF 5.4: [status.md](status.md#proof-stage-build-step-6).
+
+- Structured proofs `proof/0.2`: steps {id, kind, statement, proof, uses, runs} with validation (dependencies only
+  backwards, no dangling steps, one final conclusion, written argument required, computation steps cite passing runs).
+- Start rule: only claims that are numerically supported and survived a check (falsify, highprec, certify or
+  exhaustive) may get a proof; at most 3 submissions per claim version and campaign.
+- Review pass (made required, the handoff only recommended it): the critic reads the proof (`read_proof`) and records
+  `review_proof` accept/object with objections naming steps; reviews are bound to the proof's sha256; only an accepted
+  proof makes the derived status `proven_AI`. Tampered proof records become `invalid`. Human proof files never count as
+  `proven_AI`.
+- Loop: the critic's prompt lists proofs awaiting review; a campaign does not end while any do.
+- Tools: `read_proof` (both roles), `review_proof` (critic); the researcher profile gains the proof procedure, the
+  critic profile a review procedure. MCP now exposes 15 tools.
+- Evaluation: GQ-PRF-01, a true bound offered with a false step (verified by `eval/verify/square_zero.jl`), tests that
+  the proof does not reuse the step and that the review pass catches it.
+- Tests: 125 agent tests with `RESEARCH_TEST_JULIA` (120 plus 5 skipped without), 24 harness tests.
+- Not decided by the owner yet and implemented as defaults: the start rule, the limit of 3, and making the review pass
+  required. All three are constants or single rules in `proofs.py`.

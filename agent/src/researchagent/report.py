@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import claims as claims_mod
+from . import proofs as proofs_mod
 from . import status as status_mod
 from .glossary import CERTIFIED, EXHAUSTIVE, MEANING, SET_BY, STATUSES
 
@@ -64,10 +65,14 @@ def _note_entry(n: dict) -> dict:
                   "grade": ev.get("grade"), "run_ids": n.get("run_ids"), "text": n.get("text")})
 
 
-def _proof_entry(p: dict, head: str, fp: str) -> dict:
-    return {"id": p["id"], "author": p["author"], "created": p["created"], "version": p["version"],
-            "current": p["version"] == head and p["fingerprint"] == fp, "sha256": p["sha256"], "chars": len(p["proof"]),
-            "supporting_runs": p.get("supporting_runs") or [], "path": f"ledger/proofs/{p['id']}.json"}
+def _proof_entry(snap: status_mod.Snapshot, p: dict, head: str, fp: str) -> dict:
+    v = proofs_mod.view(snap, p)
+    chars = len(p["proof"]) if "proof" in p else sum(len(s["statement"]) + len(s["proof"]) for s in p["steps"])
+    return {"id": p["id"], "schema": p.get("schema", "proof/0.1"), "author": p["author"], "created": p["created"],
+            "version": p["version"], "current": p["version"] == head and p["fingerprint"] == fp, "state": v["state"],
+            "sha256": p["sha256"], "chars": chars, "steps": len(p.get("steps") or []),
+            "supporting_runs": p.get("supporting_runs") or [], "path": f"ledger/proofs/{p['id']}.json",
+            "reviews": [{k: r[k] for k in ("at", "reviewer", "verdict", "objections")} for r in v["reviews"]]}
 
 
 def claim_entry(snap: status_mod.Snapshot, root: str) -> dict:
@@ -103,7 +108,7 @@ def claim_entry(snap: status_mod.Snapshot, root: str) -> dict:
                      "findings": [_note_entry(n) for n in d["findings"]],
                      "critiques": [_note_entry(n) for n in d["critiques"]],
                      "counterexamples": d["counterexamples"], "runs": cited},
-        "proofs": [_proof_entry(p, v["version"], v["fingerprint"]) for p in v["proofs"]],
+        "proofs": [_proof_entry(snap, p, v["version"], v["fingerprint"]) for p in v["proofs"]],
         "attempts": [claims_mod.compact_attempt(n, root) for n in v["attempts"]],
         "citations": list(cites.values()),
         "history": v["history"],
@@ -172,10 +177,15 @@ def markdown_claim(c: dict, objections: list[dict] | None = None) -> list[str]:
         L.append("- **certified at the evaluated points** (interval arithmetic; finite, not a proof)")
     if c["evidence"].get("exhaustive"):
         L.append("- **exhaustively checked on a finite domain** (exact enumeration; nothing beyond that domain)")
+    state_text = {"accepted": "accepted by the AI review pass, not human-reviewed", "pending": "awaiting the AI review pass",
+                  "objected": "blocking objection in the AI review pass", "human": "written by the human",
+                  "invalid": "INVALID: its content does not match its recorded sha256"}
     for p in c["proofs"]:
-        who = "the AI, not human-reviewed" if not p["author"].startswith("human:") else p["author"]
-        L.append(f"- **proof** {p['id']} by {who}" + ("" if p["current"] else " (bound to an earlier version)")
-                 + f": `{p['path']}`")
+        who = "the AI" if not p["author"].startswith("human:") else p["author"]
+        L.append(f"- **proof** {p['id']} by {who} ({state_text.get(p['state'], p['state'])})"
+                 + ("" if p["current"] else " (bound to an earlier version)") + f": `{p['path']}`")
+        for r in p["reviews"][-1:]:
+            L += [f"  - review [{o['severity']}] {o['step']}: {o['issue']}" for o in r["objections"]]
     for a in c["attempts"]:
         L.append(f"- **tried, {a['outcome']}** ({a['stage']}): {a['approach']}; {a['reason']}")
     if c["reproduce"]:

@@ -506,7 +506,9 @@
                 "current",
                 "sha256",
                 "chars",
-                "path"
+                "path",
+                "state",
+                "reviews"
               ],
               "properties": {
                 "id": {
@@ -538,6 +540,73 @@
                 },
                 "path": {
                   "type": "string"
+                },
+                "schema": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "pending",
+                    "accepted",
+                    "objected",
+                    "human",
+                    "invalid"
+                  ],
+                  "description": "accepted = the AI review pass found no blocking objection (still not human-reviewed)"
+                },
+                "steps": {
+                  "type": "integer"
+                },
+                "reviews": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "at",
+                      "reviewer",
+                      "verdict",
+                      "objections"
+                    ],
+                    "properties": {
+                      "at": {
+                        "type": "string"
+                      },
+                      "reviewer": {
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "accept",
+                          "object"
+                        ]
+                      },
+                      "objections": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "step",
+                            "issue",
+                            "severity"
+                          ],
+                          "properties": {
+                            "step": {
+                              "type": "string"
+                            },
+                            "issue": {
+                              "type": "string"
+                            },
+                            "severity": {
+                              "enum": [
+                                "blocking",
+                                "minor"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

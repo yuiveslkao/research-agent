@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACC, CHAL, FND, HYP
+from conftest import ACC, CHAL, FND, HYP, STEPS, prove, survive
 from researchagent import claims_cli, glossary, report, status, tools
 from researchagent.status import StatusError
 from researchagent.tools import ToolError
@@ -44,13 +44,21 @@ def test_lifecycle_open_supported_proven_ai_then_human_proven(make_ctx):
     r = exp(res)
     out = tools.add_note(res, "finding", claim=FND("held for N<=128"), run_ids=[r])
     assert out["claim_status"] == {"claim": h, "status": "numerically-supported"}
-    p = tools.submit_proof(res, h, "H", "test  scope", PROOF)                     # whitespace-insensitive match
-    assert p["status"] == "proven_AI" and "not human-reviewed" in p["meaning"].lower()
+    cri = make_ctx("critic")
+    survive(cri, h)
+    p = tools.submit_proof(res, h, "H", "test  scope", STEPS())                   # whitespace-insensitive match
+    assert p["state"] == "pending"
+    v = view(res, h)
+    assert v["effective"] == "numerically-supported" and v["derived"]["proofs_pending"] == [p["proof"]]
+    assert status.review_queue(res.paths.ledger) == []                         # the AI review pass comes first
+    out = tools.review_proof(cri, p["proof"], "accept", [{"step": "C", "issue": "cite L1 by name", "severity": "minor"}])
+    assert out["claim_status"] == "proven_AI"
     v = view(res, h)
     assert v["effective"] == "proven_AI" and v["awaiting_review"] and v["human"] is None
     assert [q["claim"] for q in status.review_queue(res.paths.ledger)] == [h]
     rec = json.loads((res.paths.ledger / "proofs" / f"{p['proof']}.json").read_text())
-    assert rec["schema"] == "proof/0.1" and rec["version"] == h and rec["fingerprint"] == v["fingerprint"]
+    assert rec["schema"] == "proof/0.2" and rec["version"] == h and rec["fingerprint"] == v["fingerprint"]
+    assert [s["id"] for s in rec["steps"]] == ["L1", "C"]
 
     status.set_human_status(res.paths.ledger, h, "proven", "checked every lemma", "owner", proof=p["proof"], env={})
     v = view(res, h)
@@ -63,14 +71,18 @@ def test_lifecycle_open_supported_proven_ai_then_human_proven(make_ctx):
 def test_submit_proof_is_bound_to_the_exact_claim(make_ctx):
     res, cri = make_ctx("researcher"), make_ctx("critic")
     h, _ = supported(res)
+    with pytest.raises(ToolError, match="survived a check"):                   # prove survivors only
+        tools.submit_proof(res, h, "H", "test scope", STEPS())
+    survive(cri, h)
     with pytest.raises(ToolError, match="must repeat the claim exactly"):
-        tools.submit_proof(res, h, "H for all N", "test scope", PROOF)
-    with pytest.raises(ToolError, match="200..60000"):
-        tools.submit_proof(res, h, "H", "test scope", "Obvious.")
+        tools.submit_proof(res, h, "H for all N", "test scope", STEPS())
+    short = [{"id": "C", "kind": "conclusion", "statement": "H", "proof": "Obvious."}]
+    with pytest.raises(ToolError, match="written argument .* is 8 characters"):
+        tools.submit_proof(res, h, "H", "test scope", short)
     with pytest.raises(ToolError, match="may not use this tool"):
-        tools.submit_proof(cri, h, "H", "test scope", PROOF)
+        tools.submit_proof(cri, h, "H", "test scope", STEPS())
     with pytest.raises(ToolError, match="unknown claim"):
-        tools.submit_proof(res, "N-nope", "H", "test scope", PROOF)
+        tools.submit_proof(res, "N-nope", "H", "test scope", STEPS())
     assert not (res.paths.ledger / "proofs").exists()
 
 
@@ -92,13 +104,14 @@ def test_counterexample_refutes_and_blocks_proofs(make_ctx):
     out = tools.add_note(res, "finding", claim=FND("violated at N=9", "refutes", counterexample=bad), run_ids=[bad])
     assert out["claim_status"]["status"] == "refuted"
     with pytest.raises(ToolError, match="recorded counterexample"):
-        tools.submit_proof(res, h, "the bound holds", "test scope", PROOF)
+        tools.submit_proof(res, h, "the bound holds", "test scope", STEPS())
 
 
 def test_critic_counterexample_after_a_proof_is_a_conflict(make_ctx):
     res, cri = make_ctx("researcher"), make_ctx("critic")
     h, r = supported(res, "the bound holds")
-    tools.submit_proof(res, h, "the bound holds", "test scope", PROOF)
+    survive(cri, h)
+    prove(res, cri, h, "the bound holds")
     bad = tools.submit_check(cri, "falsify", "Bad", "Bad", BAD)["run_id"]
     out = tools.add_note(cri, "critique", status="challenge", run_ids=[r, bad],
                          claim={"objection": "violated at N=9", "counterexample": bad})
@@ -108,9 +121,10 @@ def test_critic_counterexample_after_a_proof_is_a_conflict(make_ctx):
 
 
 def test_revision_resets_derived_status_and_flags_human_status_stale(make_ctx):
-    res = make_ctx("researcher")
+    res, cri = make_ctx("researcher"), make_ctx("critic")
     h1, _ = supported(res)
-    p = tools.submit_proof(res, h1, "H", "test scope", PROOF)["proof"]
+    survive(cri, h1)
+    p = prove(res, cri, h1)
     status.set_human_status(res.paths.ledger, h1, "proven", "reviewed", "owner", proof=p, env={})
     h2 = hyp(res, "H on a wider range", revises=h1)
     v = view(res, h1)
@@ -170,7 +184,8 @@ def test_no_agent_tool_can_set_proven(make_ctx):
     for role_ctx, kind in ((res, "decision"), (cri, "critique")):
         with pytest.raises(ToolError):
             tools.add_note(role_ctx, kind, "x", status="proven", run_ids=[r], claim=ACC if kind == "critique" else None)
-    tools.submit_proof(res, h, "H", "test scope", PROOF)
+    survive(cri, h)
+    prove(res, cri, h)
     assert view(res, h)["effective"] == "proven_AI"
     src = Path(tools.__file__).parent
     import ast
@@ -226,7 +241,8 @@ def test_json_report_validates_against_schema(make_ctx):
     res, cri = make_ctx("researcher"), make_ctx("critic")
     h, r = supported(res)
     tools.add_note(cri, "critique", status="accept", claim=ACC, run_ids=[r])
-    tools.submit_proof(res, h, "H", "test scope", PROOF, supporting_runs=[r])
+    survive(cri, h)
+    prove(res, cri, h, runs=[r])
     h2 = hyp(res, "rate is 2 pi d")
     r2 = exp(res)
     tools.add_note(res, "finding", claim=FND("violated at N=64", "refutes", counterexample=r2), run_ids=[r2])
@@ -238,17 +254,19 @@ def test_json_report_validates_against_schema(make_ctx):
         jsonschema.validate(rep, schema)
     by = {c["id"]: c for c in rep["claims"]}
     assert by[h]["status"]["effective"] == "proven_AI" and by[h]["status"]["narrowed"]
-    assert by[h]["proofs"][0]["current"] and by[h]["reproduce"] == [f"rh rerun {r}"]
+    assert by[h]["proofs"][0]["current"] and f"rh rerun {r}" in by[h]["reproduce"]
+    assert by[h]["proofs"][0]["state"] == "accepted" and by[h]["proofs"][0]["reviews"][0]["verdict"] == "accept"
     assert by[h2]["status"]["human"]["by"] == "owner" and by[h2]["evidence"]["counterexamples"][0]["run_ids"] == [r2]
-    assert rep["review_queue"] == [h] and {x["run_id"] for x in rep["runs"]} == {r, r2}
+    assert rep["review_queue"] == [h] and {r, r2} <= {x["run_id"] for x in rep["runs"]}
     md = "\n".join(report.markdown_claims(rep))
-    assert "proven_AI" in md and "by the AI, not human-reviewed" in md and "counterexample" in md
+    assert "proven_AI" in md and "accepted by the AI review pass, not human-reviewed" in md and "counterexample" in md
 
 
 def test_research_claims_cli(make_ctx, capsys):
-    res = make_ctx("researcher")
+    res, cri = make_ctx("researcher"), make_ctx("critic")
     h, _ = supported(res)
-    p = tools.submit_proof(res, h, "H", "test scope", PROOF)["proof"]
+    survive(cri, h)
+    p = prove(res, cri, h)
     root = ["--root", str(res.settings.root)]
     assert claims_cli.main(root + ["queue"]) == 0 and h in capsys.readouterr().out
     assert claims_cli.main(root + ["set", h, "proven", "--reason", "ok", "--by", "owner"]) == 2
@@ -259,7 +277,7 @@ def test_research_claims_cli(make_ctx, capsys):
     assert [c["id"] for c in json.loads(capsys.readouterr().out)] == [h]
     assert claims_cli.main(root + ["show", h, "--proof"]) == 0
     out = capsys.readouterr().out
-    assert "human" in out and "Lemma 1" in out and "all lemmas checked" in out
+    assert "human" in out and "L1. Lemma." in out and "all lemmas checked" in out and "Review" in out
     out_file = res.settings.root / "rep.json"
     assert claims_cli.main(root + ["report", "--out", str(out_file)]) == 0
     assert json.loads(out_file.read_text())["claims"][0]["status"]["effective"] == "proven"

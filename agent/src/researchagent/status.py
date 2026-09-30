@@ -7,10 +7,12 @@ derived status again from `open` (evidence for other wording does not transfer).
 
 Derived status of the head, in order of precedence (glossary.MEANING has the wording):
   refuted                a finding (result=refutes) or a challenge names a counterexample run about this version
-  proven_AI              a proof record (ledger/proofs/P-*.json) is bound to this version's fingerprint
+  proven_AI              an AI-written proof (ledger/proofs/P-*.json) is bound to this version's fingerprint and its
+                         latest review pass (proofs.py, by another role) accepted it
   numerically-supported  a supporting finding or a critic accept cites runs about this version
   open                   otherwise
-A counterexample next to a proof is reported as a conflict (status refuted).
+A counterexample next to an accepted proof is reported as a conflict (status refuted). Proofs awaiting review or
+with a blocking objection do not change the status; human-written proof files never make it proven_AI.
 
 Human status. Only `set_human_status` (the `research-claims` CLI) writes it; no MCP tool can. `proven` is
 human-only and needs a proof record bound to the current version. The effective status is the human's if set.
@@ -31,8 +33,6 @@ from .config import isolated
 from .glossary import MEANING, STATUSES
 
 GRADES = ("none", "run", "reproduced", "cross-checked", "falsification-tested")
-PROOF_SCHEMA = "proof/0.1"
-MIN_PROOF, MAX_PROOF = 200, 60_000
 AGENT_ROLES = {"researcher", "critic", "driver"}
 
 
@@ -89,6 +89,7 @@ class Snapshot:
         pd = ledger / "proofs"
         self.proofs = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(pd.glob("P-*.json"))] if pd.exists() else []
         self.history = _jsonl(ledger / "status" / "history.jsonl")
+        self.reviews = _jsonl(ledger / "proofs" / "reviews.jsonl")
         self.threads: dict[str, list[str]] = {}
         for hid in self.hyps:                               # chronological, so a parent precedes its revision
             self.threads.setdefault(self.root_of(hid), []).append(hid)
@@ -125,6 +126,27 @@ class Snapshot:
     def notes_about(self, version: str) -> list[dict]:
         return self.about.get(version, [])
 
+    # ---- proofs and their review pass
+    def review_of(self, p: dict) -> dict | None:
+        """Latest review of exactly this proof text (a review of other text does not count)."""
+        return next((r for r in reversed(self.reviews) if r["proof"] == p["id"] and r["sha256"] == p["sha256"]), None)
+
+    @staticmethod
+    def proof_digest(p: dict) -> str:
+        content = ({"statement": p["statement"], "scope": p["scope"], "assumptions": p.get("assumptions", []),
+                    "steps": p["steps"]} if p.get("schema") == "proof/0.2" else p.get("proof", ""))
+        return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+    def proof_state(self, p: dict) -> str:
+        """invalid (content does not match its sha256) | human (a human's own proof file) | pending (no review yet) |
+        accepted | objected (blocking objection)."""
+        if self.proof_digest(p) != p.get("sha256"):
+            return "invalid"
+        if str(p.get("author", "")).startswith("human:"):
+            return "human"
+        r = self.review_of(p)
+        return "pending" if r is None else ("accepted" if r["verdict"] == "accept" else "objected")
+
     # ---- derived status
     def derive(self, version: str) -> dict:
         v = self.hyps[version]
@@ -142,7 +164,8 @@ class Snapshot:
                                 "statement": c.get("statement") or c.get("objection")})
         support = [n for n in findings if n["claim"].get("result") == "supports" and n.get("run_ids")]
         support += [n for n in critiques if n.get("status") == "accept"]
-        proofs = [p for p in self.proofs if p["version"] == version and p["fingerprint"] == fp]
+        bound = [p for p in self.proofs if p["version"] == version and p["fingerprint"] == fp]
+        proofs = [p for p in bound if self.proof_state(p) == "accepted"]
         if counter:
             status = "refuted"
         elif proofs:
@@ -167,6 +190,8 @@ class Snapshot:
             "conflict": (f"proof {proofs[-1]['id']} and counterexample in {counter[-1]['note']} both exist for this "
                          "version; one of them is wrong") if counter and proofs else None,
             "counterexamples": counter, "proofs": [p["id"] for p in proofs], "support": [n["id"] for n in support],
+            "proofs_pending": [p["id"] for p in bound if self.proof_state(p) == "pending"],
+            "proofs_objected": [p["id"] for p in bound if self.proof_state(p) == "objected"],
             "critic": last_crit["status"] if last_crit else None, "narrowed": narrowed, "supported_as": supported_as,
             "open_objections": [n["id"] for n in after if n.get("status") == "challenge"],
             "findings": findings, "critiques": critiques,
@@ -248,52 +273,30 @@ def sync(ledger: Path, ref: str, actor: str, reason: str) -> dict | None:
                   "support": d["support"]}})
 
 
-def _write_proof(ledger: Path, snap: Snapshot, version: str, author: str, campaign: str | None, proof_text: str,
-                 supporting_runs: list[str]) -> dict:
+def write_proof_record(ledger: Path, snap: Snapshot, version: str, author: str, campaign: str | None,
+                       body: dict, digest_of: object) -> dict:
+    """Store a proof record bound to `version` (its exact statement and scope). `body` holds the proof content
+    (proof/0.2: assumptions and steps; proof/0.1: markdown `proof`); `digest_of` is what the sha256 covers."""
     v = snap.hyps[version]
     now = datetime.now(timezone.utc)
     pid = "P-" + now.strftime("%Y%m%dT%H%M%S%f") + "-" + secrets.token_hex(2)
-    rec = {"schema": PROOF_SCHEMA, "id": pid, "created": now.isoformat(timespec="microseconds"), "author": author,
+    rec = {"id": pid, "created": now.isoformat(timespec="microseconds"), "author": author,
            "campaign": campaign, "claim": snap.root_of(version), "version": version,
            "fingerprint": fingerprint(v["claim"]["statement"], v["claim"]["scope"]),
-           "statement": v["claim"]["statement"], "scope": v["claim"]["scope"], "format": "markdown",
-           "proof": proof_text, "sha256": hashlib.sha256(proof_text.encode()).hexdigest(),
-           "supporting_runs": supporting_runs}
+           "statement": v["claim"]["statement"], "scope": v["claim"]["scope"], **body,
+           "sha256": hashlib.sha256(json.dumps(digest_of, sort_keys=True).encode()).hexdigest()}
     d = ledger / "proofs"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{pid}.json").write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
     return rec
 
 
-def add_proof(ledger: Path, author: str, campaign: str, version: str, statement: str, scope: str,
-              proof_text: str, supporting_runs: list[str] | None = None) -> dict:
-    """Store a written proof bound to the exact current version of a claim (sets derived status proven_AI)."""
-    snap = Snapshot(ledger)
-    root = snap.resolve(version)
-    head = snap.head(root)
-    if head["id"] != version:
-        raise StatusError(f"{version} was revised; the current version of claim {root} is {head['id']}. "
-                          "Prove the current version, or add a hypothesis with revises=<current> first")
-    c = head["claim"]
-    if (norm(statement), norm(scope)) != (norm(c["statement"]), norm(c["scope"])):
-        raise StatusError("statement and scope must repeat the claim exactly (whitespace aside), so the proof is "
-                          f"bound to what it proves. Claim statement: {c['statement']!r}; scope: {c['scope']!r}. "
-                          "To prove a different statement, first add a hypothesis with revises=" + version)
-    d = snap.derive(version)
-    if d["counterexamples"]:
-        raise StatusError(f"claim {root} has a recorded counterexample ({d['counterexamples'][-1]['note']}); a proof "
-                          "cannot be recorded for it. Re-examine the counterexample or revise the claim")
-    proof_text = (proof_text or "").strip()
-    if not MIN_PROOF <= len(proof_text) <= MAX_PROOF:
-        raise StatusError(f"proof is {len(proof_text)} characters; it must be {MIN_PROOF}..{MAX_PROOF} and contain "
-                          "the whole argument (every step and lemma, not a sketch)")
-    runs = list(supporting_runs or [])
-    for r in runs:
-        if not (ledger / "runs" / r / "result.json").exists():
-            raise StatusError(f"unknown run id {r!r} in supporting_runs")
-    rec = _write_proof(ledger, snap, version, author, campaign, proof_text, runs)
-    sync(ledger, root, author, f"proof {rec['id']} submitted")
-    return rec
+def _write_proof(ledger: Path, snap: Snapshot, version: str, author: str, campaign: str | None, proof_text: str,
+                 supporting_runs: list[str]) -> dict:
+    """A free-text proof (proof/0.1); used for the human's own proof files."""
+    return write_proof_record(ledger, snap, version, author, campaign,
+                              {"schema": "proof/0.1", "format": "markdown", "proof": proof_text,
+                               "supporting_runs": supporting_runs}, proof_text)
 
 
 def set_human_status(ledger: Path, ref: str, status: str | None, reason: str, by: str, proof: str | None = None,

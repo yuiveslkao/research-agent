@@ -1,13 +1,14 @@
 # Claim status, human review, and the JSON report
 
-This implements build-order steps 1 and 2 of [HANDOFF.md](HANDOFF.md#7-suggested-build-order-for-the-successor):
-the status model with human override, a fixed glossary enforced by the server, `attempt` notes, and a versioned
-JSON report. Code: `agent/src/researchagent/{status,glossary,report,claims_cli}.py`.
+This implements build-order steps 1, 2 and 6 of [HANDOFF.md](HANDOFF.md#7-suggested-build-order-for-the-successor):
+the status model with human override, a fixed glossary enforced by the server, `attempt` notes, a versioned JSON
+report, and the proof stage. Code: `agent/src/researchagent/{status,proofs,glossary,report,claims_cli}.py`.
 
-**What it does not do.** Nothing here checks a proof. `proven_AI` means a proof text was stored for the exact claim,
-not that it is correct. There is no proof-stage workflow yet (when to attempt, budget, review pass: build step 6), no
-novelty check. Interval arithmetic exists only as the `certify` checker (build step 4): it certifies finitely many
-points and never sets `proven` or `proven_AI`.
+**What it does not do.** Nothing here checks a proof formally. `proven_AI` means a structured proof of the exact claim
+is stored and an AI review pass (the critic, same model) found no blocking objection, not that the proof is correct;
+only `proven` (a human) is a verified status. There is no novelty check. Interval arithmetic and exact enumeration
+exist only as the `certify` and `exhaustive` checkers (build steps 4 and 5): they settle finitely many points and never
+set `proven` or `proven_AI`.
 
 ## Statuses
 
@@ -16,7 +17,7 @@ points and never sets `proven` or `proven_AI`.
 | `open` | No conclusion yet | server | none |
 | `refuted` | A counterexample was recorded | server, or human | a note naming a counterexample run (finding `result=refutes` + `counterexample`, or a critic challenge with `counterexample`); human: `--counterexample` |
 | `numerically-supported` | No counterexample found; cited runs support the claim within the stated scope and limits. Not a proof | server | a `supports` finding or a critic `accept` citing runs |
-| `proven_AI` | Proved by the AI, not human-reviewed | AI via `submit_proof` | a proof record bound to the claim's exact text |
+| `proven_AI` | Proved by the AI, accepted by the AI review pass, not human-reviewed | AI: `submit_proof` (researcher) + accepting `review_proof` (critic) | a structured proof record bound to the claim's exact text and an accepting review of that text |
 | `proven` | Proof reviewed by a human | **human only** (`research-claims set`) | a proof record of the current text, reviewer id, date |
 
 Derived precedence: `refuted` > `proven_AI` > `numerically-supported` > `open`. A proof and a counterexample on the
@@ -89,13 +90,35 @@ asked for by campaign (`--campaign EV-...`); their proofs are graded with `resea
 The server appends a derived record whenever a note or proof changes a claim's derived status or version
 (`source: ai` for `proven_AI`); `research-claims set/clear` appends human records (`status: null` = cleared).
 
-## Proof records (`proof/0.1`)
+## Proof stage (build step 6)
 
-`ledger/proofs/P-*.json`: `{schema, id, created, author, campaign, claim, version, fingerprint, statement, scope,
-format: "markdown", proof, sha256, supporting_runs}`. `submit_proof` (researcher only) refuses unless `statement`
-and `scope` repeat the current version exactly, the proof is 200..60000 characters, and no counterexample is recorded.
-`supporting_runs` are computer-assisted steps; they support the argument and never replace it. The structured format
-(lemmas with dependencies) is left to build step 6; bump the schema when it changes.
+Code: `agent/src/researchagent/proofs.py`. The defaults below are this implementation's answer to HANDOFF 5.4; each
+is a constant or one rule in that file.
+
+- **When a proof may start:** only for a claim version that is `numerically-supported` (or already `proven_AI`) and
+  survived a check: a supporting finding or accept cites a falsify (`survived`), highprec (`pass`), certify
+  (`certified`) or exhaustive (`exhausted`/`partial`) run. "Prove survivors."
+- **Budget and stop rule:** at most 3 proof submissions per claim version and campaign; after that the researcher logs
+  an `attempt` (stage `prove`) and stops. Token and time budgets are the turn's (Hermes `run_budget_seconds`, the
+  driver's turn timeout).
+- **Format `proof/0.2`** (`ledger/proofs/P-*.json`): the claim's exact statement and scope (fingerprint-bound),
+  `assumptions`, and `steps` [{id, kind: definition|lemma|claim|computation|conclusion, statement, proof, uses, runs}].
+  Rules: unique ids; `uses` only earlier steps; every step used by a later one; exactly one conclusion, last; every
+  lemma/claim/conclusion has its written proof; at least 200 characters of written argument; computation steps cite
+  completed runs (checks with a passing outcome) and support the argument, never replace it. `sha256` covers statement,
+  scope, assumptions and steps; a record whose content no longer matches it is `invalid` and never counts.
+- **Review pass:** the critic (`read_proof`, `review_proof`) records verdict `accept` (no blocking objection) or `object`
+  (at least one blocking objection naming a step), bound to the proof's sha256, in `ledger/proofs/reviews.jsonl`
+  (append-only). No self-review; a proof of a revised claim cannot be reviewed. Only an accepted proof makes the derived
+  status `proven_AI`; pending and objected proofs are listed with the claim. The loop tells the critic which proofs
+  await review and does not end a campaign while any do.
+- **Spot checks:** computation steps and the reviewer's `run_ids` record which runs back which step; they never change
+  the status by themselves.
+- **Human review:** `research-claims queue` lists `proven_AI` claims (accepted by the AI review pass);
+  `research-claims show N-... --proof` renders the steps, dependencies and review objections; `set ... proven --proof P-...`
+  records the human verdict. The human's own proof file (`--proof-file`) is stored as `proof/0.1` and never makes the
+  derived status `proven_AI`.
+- **Failure path:** an unproved survivor stays `numerically-supported`; failed lines of attack are `attempt` notes.
 
 ## Glossary (server-enforced)
 
